@@ -1,0 +1,21 @@
+.locker-container {
+  max-width: 900px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.spinner-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+}
+
+.table-container {
+  margin-top: 32px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+table {
+  width: 100%;
+}

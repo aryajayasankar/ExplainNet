@@ -6,7 +6,6 @@ import { Observable } from 'rxjs';
   providedIn: 'root'
 })
 export class ApiService {
-  // The base URL of our FastAPI backend
   private backendUrl = 'http://127.0.0.1:8000';
 
   constructor(private http: HttpClient) { }
@@ -15,5 +14,11 @@ export class ApiService {
     const endpoint = `${this.backendUrl}/analyze/`;
     const body = { topic_name: topicName };
     return this.http.post(endpoint, body);
+  }
+
+  // This is the new method we are adding
+  getTopics(): Observable<any[]> {
+    const endpoint = `${this.backendUrl}/topics/`;
+    return this.http.get<any[]>(endpoint);
   }
 }

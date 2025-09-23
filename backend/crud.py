@@ -73,13 +73,15 @@ def create_video_with_comments(db: Session, video: dict, topic_id: int, source_i
     return db_video
 
 # This is the new function we are adding
+# Find this function in crud.py and replace it
 def get_topics_with_stats(db: Session):
     # This query joins topics with articles and videos to get the counts
     results = (
         db.query(
             models.Topic,
-            func.count(models.Article.article_id).label("article_count"),
-            func.count(models.Video.video_id).label("video_count"),
+            # The fix is to add func.distinct() here
+            func.count(func.distinct(models.Article.article_id)).label("article_count"),
+            func.count(func.distinct(models.Video.video_id)).label("video_count"),
         )
         .outerjoin(models.Article, models.Topic.topic_id == models.Article.topic_id)
         .outerjoin(models.Video, models.Topic.topic_id == models.Video.topic_id)

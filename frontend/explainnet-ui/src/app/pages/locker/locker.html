@@ -1,1 +1,35 @@
-<p>locker works!</p>
+<div class="locker-container">
+  <h1>Analyzed Topics Locker</h1>
+  <p>This table shows all the topics you have previously analyzed and stored in the database.</p>
+
+  <div *ngIf="isLoading" class="spinner-container">
+    <mat-spinner></mat-spinner>
+  </div>
+
+  <div *ngIf="!isLoading && topics.length > 0" class="table-container">
+    <table mat-table [dataSource]="topics">
+
+      <ng-container matColumnDef="topic_name">
+        <th mat-header-cell *matHeaderCellDef> Topic Name </th>
+        <td mat-cell *matCellDef="let element"> {{element.topic_name}} </td>
+      </ng-container>
+
+      <ng-container matColumnDef="article_count">
+        <th mat-header-cell *matHeaderCellDef> Articles Collected </th>
+        <td mat-cell *matCellDef="let element"> {{element.article_count}} </td>
+      </ng-container>
+
+      <ng-container matColumnDef="video_count">
+        <th mat-header-cell *matHeaderCellDef> Videos Collected </th>
+        <td mat-cell *matCellDef="let element"> {{element.video_count}} </td>
+      </ng-container>
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+    </table>
+  </div>
+
+  <div *ngIf="!isLoading && topics.length === 0">
+    <p><i>No topics have been analyzed yet. Go to the "Analysis" page to get started!</i></p>
+  </div>
+</div>
