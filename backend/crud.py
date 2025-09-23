@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import models
 
 def get_or_create_topic(db: Session, topic_name: str):
@@ -70,3 +71,29 @@ def create_video_with_comments(db: Session, video: dict, topic_id: int, source_i
 
     db.commit()
     return db_video
+
+# This is the new function we are adding
+def get_topics_with_stats(db: Session):
+    # This query joins topics with articles and videos to get the counts
+    results = (
+        db.query(
+            models.Topic,
+            func.count(models.Article.article_id).label("article_count"),
+            func.count(models.Video.video_id).label("video_count"),
+        )
+        .outerjoin(models.Article, models.Topic.topic_id == models.Article.topic_id)
+        .outerjoin(models.Video, models.Topic.topic_id == models.Video.topic_id)
+        .group_by(models.Topic.topic_id)
+        .all()
+    )
+
+    # Format the results into a list of dictionaries
+    topics_with_stats = []
+    for topic, article_count, video_count in results:
+        topics_with_stats.append({
+            "topic_id": topic.topic_id,
+            "topic_name": topic.topic_name,
+            "article_count": article_count,
+            "video_count": video_count,
+        })
+    return topics_with_stats
