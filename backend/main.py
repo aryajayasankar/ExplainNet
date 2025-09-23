@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
+# This is the new import you need
+from fastapi.middleware.cors import CORSMiddleware
 
 import crud
 import models
@@ -12,6 +14,22 @@ from database import SessionLocal, engine
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+# --- START: New CORS configuration ---
+# This block allows your frontend (on localhost:4200) to communicate with your backend.
+origins = [
+    "http://localhost:4200",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# --- END: New CORS configuration ---
+
 
 # Dependency to get a DB session
 def get_db():

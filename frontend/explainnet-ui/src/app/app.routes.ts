@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { Locker } from './pages/locker/locker';
-import { Analysis } from './pages/analysis/analysis';
+import { Analysis } from './pages/analysis/analysis.component';
 
 export const routes: Routes = [
     { path: 'locker', component: Locker },

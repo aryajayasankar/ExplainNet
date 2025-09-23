@@ -1,0 +1,20 @@
+<div class="analysis-container">
+  <h1>Analyze a New Topic</h1>
+  <p>Enter a topic below to collect and process the latest data from news and YouTube.</p>
+
+  <div class="form-container">
+    <mat-form-field appearance="outline">
+      <mat-label>Topic Name</mat-label>
+      <input matInput [formControl]="topicControl" placeholder="e.g., Artificial Intelligence in Healthcare">
+    </mat-form-field>
+
+    <button mat-flat-button color="primary" (click)="startAnalysis()" [disabled]="isLoading || !topicControl.value">
+      Start Analysis
+    </button>
+  </div>
+
+  <div class="status-container" *ngIf="statusMessage">
+    <mat-spinner *ngIf="isLoading" [diameter]="30"></mat-spinner>
+    <p>{{ statusMessage }}</p>
+  </div>
+</div>
