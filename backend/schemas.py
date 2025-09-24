@@ -11,3 +11,8 @@ class Topic(BaseModel):
 
     class Config:
         from_attributes = True
+        
+class InferenceResponse(BaseModel):
+    topic_id: int
+    topic_name: str
+    predicted_virality_score: float

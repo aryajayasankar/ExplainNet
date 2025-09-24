@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-import models
+# Change this import
+from . import models
 
 def get_or_create_topic(db: Session, topic_name: str):
     topic = db.query(models.Topic).filter(models.Topic.topic_name == topic_name).first()

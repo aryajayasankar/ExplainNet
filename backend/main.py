@@ -1,12 +1,14 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 
-import crud
-import models
-import schemas
-import pipeline
-from database import SessionLocal, engine
+# Corrected imports
+from . import crud
+from . import models
+from . import schemas
+from . import pipeline
+from .database import SessionLocal, engine
+from ml_pipeline import inference
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -31,16 +33,31 @@ def get_db():
     finally:
         db.close()
 
-# This is the new endpoint we are adding
 @app.get("/topics/", response_model=list[schemas.Topic])
 def read_topics(db: Session = Depends(get_db)):
     topics = crud.get_topics_with_stats(db)
     return topics
+    
+@app.get("/topics/{topic_id}/inference/", response_model=schemas.InferenceResponse)
+def get_inference(topic_id: int, db: Session = Depends(get_db)):
+    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    
+    score = inference.predict_virality(topic_id=topic_id)
+    
+    if score is None:
+         raise HTTPException(status_code=404, detail="Could not generate graph for this topic.")
+
+    return {
+        "topic_id": topic_id,
+        "topic_name": topic.topic_name,
+        "predicted_virality_score": score
+    }
 
 @app.post("/analyze/")
 def analyze_topic(topic_request: schemas.TopicCreate, db: Session = Depends(get_db)):
     topic_name = topic_request.topic_name
-
     topic = crud.get_or_create_topic(db, topic_name=topic_name)
 
     print("--- Starting Data Collection ---")
