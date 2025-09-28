@@ -1,14 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
-from . import crud
-from . import models
-from . import schemas
-from . import pipeline
-from . import database
-from datetime import datetime, timedelta
-from typing import List
-import numpy as np
+from sqlalchemy import func, desc
+from textblob import TextBlob
+from . import crud, models, schemas, pipeline, database
+import statistics
+from datetime import datetime
+from typing import Dict, List
 
 # Try to import ml_pipeline, but don't fail if it's not available yet
 try:
@@ -36,6 +34,61 @@ def get_db():
     finally: 
         db.close()
 
+# Helper functions for analytics
+def calculate_channel_impact_score(db: Session, source_id: int, topic_id: int = None):
+    """Calculate impact score for a YouTube channel"""
+    query = db.query(models.Video).filter(models.Video.source_id == source_id)
+    if topic_id:
+        query = query.filter(models.Video.topic_id == topic_id)
+    
+    videos = query.all()
+    if not videos:
+        return 0
+    
+    # Calculate metrics
+    total_views = sum(int(v.view_count or 0) for v in videos)
+    avg_views = total_views / len(videos) if videos else 0
+    total_engagement = sum(int(v.like_count or 0) + int(v.comment_count or 0) for v in videos)
+    
+    # Normalize scores (simple approach - can be refined)
+    view_score = min(50, avg_views / 10000)  # Max 50 points for views
+    engagement_score = min(30, total_engagement / 1000)  # Max 30 points for engagement
+    frequency_score = min(20, len(videos) * 2)  # Max 20 points for frequency
+    
+    return round(view_score + engagement_score + frequency_score, 2)
+
+def analyze_comment_sentiment(comments):
+    """Analyze sentiment of comments using TextBlob"""
+    if not comments:
+        return {"positive": 0, "neutral": 0, "negative": 0, "overall_score": 50, "total_comments": 0}
+    
+    sentiments = []
+    for comment in comments:
+        if comment.comment_text:
+            try:
+                blob = TextBlob(comment.comment_text)
+                sentiments.append(blob.sentiment.polarity)
+            except:
+                continue
+    
+    if not sentiments:
+        return {"positive": 0, "neutral": 0, "negative": 0, "overall_score": 50, "total_comments": len(comments)}
+    
+    positive = len([s for s in sentiments if s > 0.1])
+    negative = len([s for s in sentiments if s < -0.1])
+    neutral = len(sentiments) - positive - negative
+    
+    overall_score = (sum(sentiments) / len(sentiments)) * 50 + 50  # Convert to 0-100 scale
+    
+    return {
+        "positive": positive,
+        "negative": negative,
+        "neutral": neutral,
+        "overall_score": round(max(0, min(100, overall_score)), 2),
+        "total_comments": len(comments)
+    }
+
+# Existing endpoints
 @app.get("/topics/", response_model=list[schemas.Topic])
 def read_topics(db: Session = Depends(get_db)):
     return crud.get_topics_with_stats(db)
@@ -63,6 +116,168 @@ def get_news_reliability(topic_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No recent news found.")
     return data
 
+# NEW ENHANCED ANALYTICS ENDPOINTS
+@app.get("/topics/{topic_id}/channel-analytics/")
+def get_channel_analytics(topic_id: int, db: Session = Depends(get_db)):
+    """Get comprehensive YouTube channel analytics for a topic"""
+    channels = db.query(models.Source).filter(
+        models.Source.platform == "YouTube"
+    ).join(models.Video).filter(models.Video.topic_id == topic_id).distinct().all()
+    
+    channel_data = []
+    for channel in channels:
+        videos = db.query(models.Video).filter(
+            models.Video.source_id == channel.source_id,
+            models.Video.topic_id == topic_id
+        ).all()
+        
+        if videos:
+            impact_score = calculate_channel_impact_score(db, channel.source_id, topic_id)
+            total_views = sum(int(v.view_count or 0) for v in videos)
+            total_videos = len(videos)
+            avg_views = total_views / total_videos if total_videos > 0 else 0
+            
+            # Get all comments for sentiment analysis
+            all_comments = []
+            for video in videos:
+                comments = db.query(models.Comment).filter(models.Comment.video_id == video.video_id).all()
+                all_comments.extend(comments)
+            
+            sentiment = analyze_comment_sentiment(all_comments)
+            
+            channel_data.append({
+                "source_id": channel.source_id,
+                "channel_name": channel.source_name,
+                "impact_score": impact_score,
+                "total_videos": total_videos,
+                "total_views": total_views,
+                "avg_views_per_video": round(avg_views, 2),
+                "sentiment_analysis": sentiment
+            })
+    
+    # Sort by impact score
+    channel_data.sort(key=lambda x: x["impact_score"], reverse=True)
+    return channel_data
+
+@app.get("/topics/{topic_id}/video-timeline/")
+def get_video_timeline(topic_id: int, db: Session = Depends(get_db)):
+    """Get video timeline data for views vs publication date chart"""
+    videos = db.query(models.Video).filter(
+        models.Video.topic_id == topic_id
+    ).order_by(models.Video.publication_date).all()
+    
+    timeline_data = []
+    for video in videos:
+        if video.publication_date and video.view_count:
+            source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
+            timeline_data.append({
+                "video_id": video.video_id,
+                "title": video.title,
+                "publication_date": video.publication_date.isoformat(),
+                "view_count": int(video.view_count or 0),
+                "channel_name": source.source_name if source else "Unknown",
+                "url": video.url
+            })
+    
+    return timeline_data
+
+@app.get("/topics/{topic_id}/news-data/")
+def get_news_data(topic_id: int, db: Session = Depends(get_db)):
+    """Get all news data (both Guardian and NewsAPI) for a topic"""
+    # Guardian articles
+    guardian_articles = db.query(models.Article).filter(
+        models.Article.topic_id == topic_id,
+        models.Article.data_source_api == "Guardian"
+    ).order_by(desc(models.Article.publication_date)).all()
+    
+    # NewsAPI articles
+    newsapi_articles = db.query(models.Article).filter(
+        models.Article.topic_id == topic_id,
+        models.Article.data_source_api == "NewsAPI.org"
+    ).order_by(desc(models.Article.publication_date)).all()
+    
+    guardian_data = [{
+        "article_id": article.article_id,
+        "headline": article.headline,
+        "url": article.url,
+        "author": article.author,
+        "publication_date": article.publication_date.isoformat() if article.publication_date else None,
+        "source_name": "The Guardian"
+    } for article in guardian_articles]
+    
+    newsapi_data = []
+    for article in newsapi_articles:
+        source = db.query(models.Source).filter(models.Source.source_id == article.source_id).first()
+        newsapi_data.append({
+            "article_id": article.article_id,
+            "headline": article.headline,
+            "url": article.url,
+            "author": article.author,
+            "publication_date": article.publication_date.isoformat() if article.publication_date else None,
+            "source_name": source.source_name if source else "Unknown"
+        })
+    
+    return {
+        "guardian": guardian_data,
+        "newsapi": newsapi_data,
+        "guardian_count": len(guardian_data),
+        "newsapi_count": len(newsapi_data)
+    }
+
+@app.get("/topics/{topic_id}/youtube-data/")
+def get_youtube_data(topic_id: int, db: Session = Depends(get_db)):
+    """Get YouTube video data for a topic"""
+    videos = db.query(models.Video).filter(
+        models.Video.topic_id == topic_id
+    ).order_by(desc(models.Video.publication_date)).all()
+    
+    video_data = []
+    for video in videos:
+        source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
+        video_data.append({
+            "video_id": video.video_id,
+            "title": video.title,
+            "url": video.url,
+            "publication_date": video.publication_date.isoformat() if video.publication_date else None,
+            "channel_name": source.source_name if source else "Unknown",
+            "view_count": int(video.view_count or 0),
+            "like_count": int(video.like_count or 0),
+            "comment_count": int(video.comment_count or 0)
+        })
+    
+    return {
+        "videos": video_data,
+        "total_videos": len(video_data)
+    }
+
+# Enhanced reliability endpoint
+@app.get("/topics/{topic_id}/enhanced-news-reliability/")
+def get_enhanced_news_reliability(topic_id: int, db: Session = Depends(get_db)):
+    """Enhanced news reliability with more detailed metrics"""
+    base_data = crud.get_news_reliability_for_topic(db, topic_id=topic_id)
+    
+    # Add more detailed metrics
+    enhanced_data = []
+    for source_info in base_data:
+        source_id = source_info["source_id"]
+        
+        # Get all articles from this source
+        articles = db.query(models.Article).filter(
+            models.Article.source_id == source_id,
+            models.Article.topic_id == topic_id
+        ).all()
+        
+        enhanced_info = source_info.copy()
+        enhanced_info.update({
+            "total_articles": len(articles),
+            "avg_article_length": statistics.mean([len(a.full_text or "") for a in articles]) if articles else 0,
+            "has_author_info": sum(1 for a in articles if a.author) / len(articles) * 100 if articles else 0
+        })
+        enhanced_data.append(enhanced_info)
+    
+    return enhanced_data
+
+# Existing endpoints continue...
 @app.post("/topics/{topic_id}/fetch-historical-news/")
 def fetch_historical_news(topic_id: int, db: Session = Depends(get_db)):
     topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
@@ -109,87 +324,3 @@ def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
         print(f"Saved {len(youtube_videos)} videos and their comments to DB.")
     
     return {"status": "success", "topic_id": topic.topic_id, "message": "Initial analysis complete."}
-
-@app.get("/metrics/youtube/", response_model=schemas.YouTubeMetrics)
-def get_youtube_metrics(db: Session = Depends(get_db)):
-    youtube_sources = db.query(models.Source).filter(models.Source.platform == "YouTube").all()
-    
-    channels_data = []
-    for source in youtube_sources:
-        impact_score = metrics.calculate_channel_impact_score(db, source.source_id)
-        source.channel_impact_score = impact_score
-        db.commit()
-        
-        channels_data.append({
-            "channelName": source.source_name,
-            "impactScore": impact_score,
-            "speedFactor": source.speed_factor or 0.0,
-            "frequencyFactor": source.frequency_factor or 0.0,
-            "averageEngagement": source.consistency_factor or 0.0
-        })
-    
-    return {
-        "channels": channels_data,
-        "viewsData": [],  # This will be fetched per topic
-        "sentimentAnalysis": []  # This will be fetched per topic
-    }
-
-@app.get("/metrics/youtube/timeline/{topic_id}", response_model=schemas.TimelineData)
-def get_youtube_timeline(topic_id: int, db: Session = Depends(get_db)):
-    return metrics.get_views_timeline(db, topic_id)
-
-@app.get("/metrics/youtube/sentiment/{topic_id}", response_model=List[schemas.SentimentData])
-def get_youtube_sentiment(topic_id: int, db: Session = Depends(get_db)):
-    return metrics.calculate_sentiment_metrics(db, topic_id)
-
-@app.get("/metrics/news/", response_model=schemas.NewsMetrics)
-def get_news_metrics(db: Session = Depends(get_db)):
-    # Calculate Guardian metrics
-    guardian_source = db.query(models.Source).filter(
-        models.Source.source_name == "The Guardian"
-    ).first()
-    
-    guardian_metrics = {
-        "reliability": 0.0,
-        "coverage": 0.0,
-        "articles": 0,
-        "timelineData": []
-    }
-    
-    if guardian_source:
-        reliability_data = metrics.calculate_news_source_reliability(db, guardian_source.source_id)
-        guardian_metrics.update({
-            "reliability": reliability_data["reliabilityScore"],
-            "coverage": len(db.query(models.Article).filter(
-                models.Article.source_id == guardian_source.source_id
-            ).all()),
-            "articles": db.query(models.Article).filter(
-                models.Article.source_id == guardian_source.source_id
-            ).count()
-        })
-    
-    # Calculate overall news metrics
-    news_sources = db.query(models.Source).filter(
-        models.Source.platform == "News"
-    ).all()
-    
-    sources_ranking = []
-    for source in news_sources:
-        reliability_data = metrics.calculate_news_source_reliability(db, source.source_id)
-        sources_ranking.append({
-            "sourceName": source.source_name,
-            "reliabilityScore": reliability_data["reliabilityScore"],
-            "speedFactor": reliability_data["speedFactor"],
-            "consistencyFactor": reliability_data["consistencyFactor"]
-        })
-    
-    return {
-        "guardian": guardian_metrics,
-        "overall": {
-            "sourcesRanking": sorted(
-                sources_ranking,
-                key=lambda x: x["reliabilityScore"],
-                reverse=True
-            )
-        }
-    }

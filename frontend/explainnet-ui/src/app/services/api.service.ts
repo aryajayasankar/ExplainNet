@@ -46,4 +46,33 @@ export class ApiService {
     const endpoint = `${this.backendUrl}/metrics/news/reliability/`;
     return this.http.get(endpoint);
   }
+
+  // Add these methods to your existing ApiService class
+
+  getChannelAnalytics(topicId: number): Observable<any> {
+    const endpoint = `${this.backendUrl}/topics/${topicId}/channel-analytics/`;
+    return this.http.get(endpoint);
+  }
+
+  getVideoTimeline(topicId: number): Observable<any> {
+    const endpoint = `${this.backendUrl}/topics/${topicId}/video-timeline/`;
+    return this.http.get(endpoint);
+  }
+
+  getNewsData(topicId: number): Observable<any> {
+    const endpoint = `${this.backendUrl}/topics/${topicId}/news-data/`;
+    return this.http.get(endpoint);
+  }
+
+  getYouTubeData(topicId: number): Observable<any> {
+    const endpoint = `${this.backendUrl}/topics/${topicId}/youtube-data/`;
+    return this.http.get(endpoint);
+  }
+
+  getEnhancedNewsReliability(topicId: number): Observable<any> {
+    const endpoint = `${this.backendUrl}/topics/${topicId}/enhanced-news-reliability/`;
+    return this.http.get(endpoint);
+  }
+
+  
 }
