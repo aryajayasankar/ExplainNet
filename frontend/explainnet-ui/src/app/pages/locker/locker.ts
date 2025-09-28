@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ApiService } from '../../services/api.service';
 import { MatTableModule } from '@angular/material/table';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { Router } from '@angular/router';
 
 export interface TopicData {
   topic_id: number;
@@ -23,7 +24,7 @@ export class Locker implements OnInit {
   topics: TopicData[] = [];
   displayedColumns: string[] = ['topic_name', 'article_count', 'video_count'];
 
-  constructor(private apiService: ApiService) {}
+  constructor(private apiService: ApiService, private router: Router) {}
 
   ngOnInit(): void {
     this.apiService.getTopics().subscribe({
@@ -36,5 +37,9 @@ export class Locker implements OnInit {
         this.isLoading = false;
       }
     });
+  }
+
+  navigateToTopic(topic: TopicData): void {
+    this.router.navigate(['/locker', topic.topic_id]);
   }
 }

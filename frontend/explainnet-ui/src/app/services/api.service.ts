@@ -16,9 +16,34 @@ export class ApiService {
     return this.http.post(endpoint, body);
   }
 
-  // This is the new method we are adding
   getTopics(): Observable<any[]> {
     const endpoint = `${this.backendUrl}/topics/`;
     return this.http.get<any[]>(endpoint);
+  }
+
+  // New methods for enhanced features
+  getYouTubeMetrics(): Observable<any> {
+    const endpoint = `${this.backendUrl}/metrics/youtube/`;
+    return this.http.get(endpoint);
+  }
+
+  getNewsMetrics(): Observable<any> {
+    const endpoint = `${this.backendUrl}/metrics/news/`;
+    return this.http.get(endpoint);
+  }
+
+  getViewsTimeline(topic: string): Observable<any> {
+    const endpoint = `${this.backendUrl}/metrics/youtube/timeline/${topic}`;
+    return this.http.get(endpoint);
+  }
+
+  getSentimentAnalysis(topic: string): Observable<any> {
+    const endpoint = `${this.backendUrl}/metrics/youtube/sentiment/${topic}`;
+    return this.http.get(endpoint);
+  }
+
+  getSourceReliability(): Observable<any> {
+    const endpoint = `${this.backendUrl}/metrics/news/reliability/`;
+    return this.http.get(endpoint);
   }
 }

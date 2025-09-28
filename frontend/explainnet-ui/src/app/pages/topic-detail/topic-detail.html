@@ -1,0 +1,39 @@
+<div class="topic-detail-container">
+  <!-- Loading State -->
+  <div *ngIf="isLoading" class="loading-container">
+    <p>Loading topic details...</p>
+  </div>
+
+  <!-- Topic Content -->
+  <div *ngIf="!isLoading && topicData" class="topic-content">
+    <!-- Header Section -->
+    <div class="topic-header">
+      <button mat-icon-button (click)="goBackToLocker()" class="back-button">
+        <mat-icon>arrow_back</mat-icon>
+      </button>
+      <div class="topic-info">
+        <h1>{{topicData.topic_name}}</h1>
+        <div class="topic-stats">
+          <span class="stat-item">{{topicData.article_count}} Articles</span>
+          <span class="stat-item">{{topicData.video_count}} Videos</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Placeholder for tabs (we'll add this in Phase 2) -->
+    <div class="content-placeholder">
+      <mat-card>
+        <mat-card-content>
+          <p>Topic detail page for: <strong>{{topicData.topic_name}}</strong></p>
+          <p>This is where we'll add the tabbed interface with YouTube and News analytics.</p>
+        </mat-card-content>
+      </mat-card>
+    </div>
+  </div>
+
+  <!-- Error State -->
+  <div *ngIf="!isLoading && !topicData" class="error-container">
+    <p>Topic not found.</p>
+    <button mat-button (click)="goBackToLocker()">Back to Locker</button>
+  </div>
+</div>

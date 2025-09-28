@@ -25,10 +25,10 @@
       </ng-container>
 
       <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+      <tr mat-row (click)="navigateToTopic(row)" class="clickable-row" *matRowDef="let row; columns: displayedColumns;"></tr>
     </table>
   </div>
-
+  
   <div *ngIf="!isLoading && topics.length === 0">
     <p><i>No topics have been analyzed yet. Go to the "Analysis" page to get started!</i></p>
   </div>

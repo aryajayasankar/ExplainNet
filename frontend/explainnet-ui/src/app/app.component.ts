@@ -1,14 +1,12 @@
 import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
 import { MainLayoutComponent } from './layout/main-layout/main-layout.component';
-
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, MainLayoutComponent],
+  imports: [MainLayoutComponent], // Removed RouterOutlet since you're not using it
   templateUrl: './app.html',
-  styleUrl: './app.scss'
+  styleUrls: ['./app.scss']
 })
 export class AppComponent {
   title = 'explainnet-ui';
