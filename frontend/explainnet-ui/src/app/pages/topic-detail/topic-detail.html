@@ -20,15 +20,50 @@
       </div>
     </div>
 
-    <!-- Placeholder for tabs (we'll add this in Phase 2) -->
-    <div class="content-placeholder">
-      <mat-card>
-        <mat-card-content>
-          <p>Topic detail page for: <strong>{{topicData.topic_name}}</strong></p>
-          <p>This is where we'll add the tabbed interface with YouTube and News analytics.</p>
-        </mat-card-content>
-      </mat-card>
-    </div>
+    <!-- Tabbed Content -->
+    <mat-tab-group class="topic-tabs">
+      <mat-tab label="YouTube Analytics">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>YouTube Video Analytics</mat-card-title>
+              <mat-card-subtitle>{{topicData.video_count}} videos analyzed</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <p>Channel impact scores, views timeline, and sentiment analysis will appear here.</p>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
+
+      <mat-tab label="News Analytics">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>News Source Analytics</mat-card-title>
+              <mat-card-subtitle>{{topicData.article_count}} articles analyzed</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <p>Source reliability rankings, Guardian vs NewsAPI data, and fetch controls will appear here.</p>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
+
+      <mat-tab label="AI Insights">
+        <div class="tab-content">
+          <mat-card>
+            <mat-card-header>
+              <mat-card-title>Virality Prediction & Insights</mat-card-title>
+              <mat-card-subtitle>ML-powered analysis</mat-card-subtitle>
+            </mat-card-header>
+            <mat-card-content>
+              <p>GNN virality scores, sentiment analysis, and topic modeling results will appear here.</p>
+            </mat-card-content>
+          </mat-card>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
   </div>
 
   <!-- Error State -->
