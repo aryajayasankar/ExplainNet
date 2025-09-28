@@ -24,15 +24,56 @@
     <mat-tab-group class="topic-tabs">
       <mat-tab label="YouTube Analytics">
         <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>YouTube Video Analytics</mat-card-title>
-              <mat-card-subtitle>{{topicData.video_count}} videos analyzed</mat-card-subtitle>
-            </mat-card-header>
-            <mat-card-content>
-              <p>Channel impact scores, views timeline, and sentiment analysis will appear here.</p>
-            </mat-card-content>
-          </mat-card>
+          <!-- Channel Impact Scores -->
+          <div class="analytics-section">
+            <h2>Channel Impact Rankings</h2>
+            <div class="channel-cards" *ngIf="channelAnalytics.length > 0">
+              <mat-card class="channel-card" *ngFor="let channel of channelAnalytics.slice(0, 5)">
+                <mat-card-header>
+                  <mat-card-title>{{channel.channel_name}}</mat-card-title>
+                  <mat-card-subtitle>Impact Score: {{channel.impact_score}}</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  <div class="channel-stats">
+                    <div class="stat">
+                      <strong>{{channel.total_views | number}}</strong>
+                      <span>Total Views</span>
+                    </div>
+                    <div class="stat">
+                      <strong>{{channel.total_videos}}</strong>
+                      <span>Videos</span>
+                    </div>
+                    <div class="stat">
+                      <strong>{{channel.sentiment_analysis.overall_score | number:'1.1-1'}}%</strong>
+                      <span>Sentiment</span>
+                    </div>
+                  </div>
+                  <div class="sentiment-breakdown">
+                    <span class="positive">+{{channel.sentiment_analysis.positive}}</span>
+                    <span class="neutral">={{channel.sentiment_analysis.neutral}}</span>
+                    <span class="negative">-{{channel.sentiment_analysis.negative}}</span>
+                    <small>
+                      {{channel.sentiment_analysis.analyzed_comments || channel.sentiment_analysis.english_comments}} analyzed 
+                      / {{channel.sentiment_analysis.total_comments}} total
+                    </small>
+                  </div>
+                  <div class="language-info" *ngIf="channel.sentiment_analysis.non_english_comments > 0">
+                    <small>{{channel.sentiment_analysis.non_english_comments}} non-English comments detected</small>
+                  </div>
+                </mat-card-content>
+              </mat-card>
+            </div>
+          </div>
+
+          <!-- Views Timeline Chart -->
+          <div class="analytics-section">
+            <h2>Video Performance Timeline</h2>
+            <mat-card class="chart-card">
+              <mat-card-content>
+                <canvas #timelineChart width="800" height="400"></canvas>
+              </mat-card-content>
+            </mat-card>
+          </div>
         </div>
       </mat-tab>
 

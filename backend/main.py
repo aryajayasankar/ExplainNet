@@ -7,6 +7,8 @@ from . import crud, models, schemas, pipeline, database
 import statistics
 from datetime import datetime
 from typing import Dict, List
+from langdetect import detect, DetectorFactory
+import re
 
 # Try to import ml_pipeline, but don't fail if it's not available yet
 try:
@@ -58,34 +60,78 @@ def calculate_channel_impact_score(db: Session, source_id: int, topic_id: int = 
     return round(view_score + engagement_score + frequency_score, 2)
 
 def analyze_comment_sentiment(comments):
-    """Analyze sentiment of comments using TextBlob"""
+    """Analyze sentiment of comments with language detection"""
     if not comments:
-        return {"positive": 0, "neutral": 0, "negative": 0, "overall_score": 50, "total_comments": 0}
+        return {
+            "positive": 0, "neutral": 0, "negative": 0, 
+            "overall_score": 50, "total_comments": 0,
+            "english_comments": 0, "non_english_comments": 0,
+            "language_breakdown": {}
+        }
     
     sentiments = []
+    english_count = 0
+    non_english_count = 0
+    language_counts = {}
+    
     for comment in comments:
-        if comment.comment_text:
+        if not comment.comment_text or len(comment.comment_text.strip()) < 3:
+            continue
+            
+        try:
+            # Clean text for better language detection
+            cleaned_text = re.sub(r'[^\w\s]', '', comment.comment_text)
+            
+            # Detect language
+            detected_lang = detect(cleaned_text)
+            language_counts[detected_lang] = language_counts.get(detected_lang, 0) + 1
+            
+            if detected_lang == 'en':
+                # Analyze English comments with TextBlob
+                english_count += 1
+                blob = TextBlob(comment.comment_text)
+                sentiments.append(blob.sentiment.polarity)
+            else:
+                # For non-English, mark as analyzed but don't include in sentiment
+                non_english_count += 1
+                # Could add multilingual sentiment analysis here in future
+                
+        except Exception as e:
+            # If language detection fails, try TextBlob anyway
             try:
                 blob = TextBlob(comment.comment_text)
                 sentiments.append(blob.sentiment.polarity)
+                english_count += 1
             except:
+                non_english_count += 1
                 continue
     
     if not sentiments:
-        return {"positive": 0, "neutral": 0, "negative": 0, "overall_score": 50, "total_comments": len(comments)}
+        return {
+            "positive": 0, "neutral": 0, "negative": 0,
+            "overall_score": 50, "total_comments": len(comments),
+            "english_comments": english_count, "non_english_comments": non_english_count,
+            "language_breakdown": language_counts,
+            "note": "No English comments found for sentiment analysis"
+        }
     
+    # Categorize English comments only
     positive = len([s for s in sentiments if s > 0.1])
     negative = len([s for s in sentiments if s < -0.1])
     neutral = len(sentiments) - positive - negative
     
-    overall_score = (sum(sentiments) / len(sentiments)) * 50 + 50  # Convert to 0-100 scale
+    overall_score = (sum(sentiments) / len(sentiments)) * 50 + 50
     
     return {
         "positive": positive,
-        "negative": negative,
+        "negative": negative, 
         "neutral": neutral,
         "overall_score": round(max(0, min(100, overall_score)), 2),
-        "total_comments": len(comments)
+        "total_comments": len(comments),
+        "english_comments": english_count,
+        "non_english_comments": non_english_count,
+        "language_breakdown": language_counts,
+        "analyzed_comments": len(sentiments)
     }
 
 # Existing endpoints
