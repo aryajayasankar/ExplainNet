@@ -1,7 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
-from . import crud, models, schemas, pipeline, database
+from . import crud
+from . import models
+from . import schemas
+from . import pipeline
+from . import database
+from datetime import datetime, timedelta
+from typing import List
+import numpy as np
 
 # Try to import ml_pipeline, but don't fail if it's not available yet
 try:
@@ -102,3 +109,87 @@ def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
         print(f"Saved {len(youtube_videos)} videos and their comments to DB.")
     
     return {"status": "success", "topic_id": topic.topic_id, "message": "Initial analysis complete."}
+
+@app.get("/metrics/youtube/", response_model=schemas.YouTubeMetrics)
+def get_youtube_metrics(db: Session = Depends(get_db)):
+    youtube_sources = db.query(models.Source).filter(models.Source.platform == "YouTube").all()
+    
+    channels_data = []
+    for source in youtube_sources:
+        impact_score = metrics.calculate_channel_impact_score(db, source.source_id)
+        source.channel_impact_score = impact_score
+        db.commit()
+        
+        channels_data.append({
+            "channelName": source.source_name,
+            "impactScore": impact_score,
+            "speedFactor": source.speed_factor or 0.0,
+            "frequencyFactor": source.frequency_factor or 0.0,
+            "averageEngagement": source.consistency_factor or 0.0
+        })
+    
+    return {
+        "channels": channels_data,
+        "viewsData": [],  # This will be fetched per topic
+        "sentimentAnalysis": []  # This will be fetched per topic
+    }
+
+@app.get("/metrics/youtube/timeline/{topic_id}", response_model=schemas.TimelineData)
+def get_youtube_timeline(topic_id: int, db: Session = Depends(get_db)):
+    return metrics.get_views_timeline(db, topic_id)
+
+@app.get("/metrics/youtube/sentiment/{topic_id}", response_model=List[schemas.SentimentData])
+def get_youtube_sentiment(topic_id: int, db: Session = Depends(get_db)):
+    return metrics.calculate_sentiment_metrics(db, topic_id)
+
+@app.get("/metrics/news/", response_model=schemas.NewsMetrics)
+def get_news_metrics(db: Session = Depends(get_db)):
+    # Calculate Guardian metrics
+    guardian_source = db.query(models.Source).filter(
+        models.Source.source_name == "The Guardian"
+    ).first()
+    
+    guardian_metrics = {
+        "reliability": 0.0,
+        "coverage": 0.0,
+        "articles": 0,
+        "timelineData": []
+    }
+    
+    if guardian_source:
+        reliability_data = metrics.calculate_news_source_reliability(db, guardian_source.source_id)
+        guardian_metrics.update({
+            "reliability": reliability_data["reliabilityScore"],
+            "coverage": len(db.query(models.Article).filter(
+                models.Article.source_id == guardian_source.source_id
+            ).all()),
+            "articles": db.query(models.Article).filter(
+                models.Article.source_id == guardian_source.source_id
+            ).count()
+        })
+    
+    # Calculate overall news metrics
+    news_sources = db.query(models.Source).filter(
+        models.Source.platform == "News"
+    ).all()
+    
+    sources_ranking = []
+    for source in news_sources:
+        reliability_data = metrics.calculate_news_source_reliability(db, source.source_id)
+        sources_ranking.append({
+            "sourceName": source.source_name,
+            "reliabilityScore": reliability_data["reliabilityScore"],
+            "speedFactor": reliability_data["speedFactor"],
+            "consistencyFactor": reliability_data["consistencyFactor"]
+        })
+    
+    return {
+        "guardian": guardian_metrics,
+        "overall": {
+            "sourcesRanking": sorted(
+                sources_ranking,
+                key=lambda x: x["reliabilityScore"],
+                reverse=True
+            )
+        }
+    }

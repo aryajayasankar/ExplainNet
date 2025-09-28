@@ -1,17 +1,18 @@
 from sqlalchemy import Column, Integer, String, Text, TIMESTAMP, ForeignKey
 from sqlalchemy.orm import relationship
-from .database import Base  # Import Base from database.py instead of creating a new one
+from .database import Base
 
 class Topic(Base):
     __tablename__ = 'topics'
     topic_id = Column(Integer, primary_key=True)
     topic_name = Column(Text, nullable=False, unique=True)
+    # Removed extra columns that don't exist in your actual database
 
 class Source(Base):
     __tablename__ = 'sources'
     source_id = Column(Integer, primary_key=True)
     source_name = Column(Text, nullable=False)
-    platform = Column(String(50)) # 'News' or 'YouTube'
+    platform = Column(String(50))
     
     articles = relationship("Article", back_populates="source")
     videos = relationship("Video", back_populates="source")
@@ -26,9 +27,9 @@ class Article(Base):
     author = Column(Text)
     publication_date = Column(TIMESTAMP)
     full_text = Column(Text)
-    data_source_api = Column(String(50)) # e.g., 'Guardian' or 'NewsAPI.org'
-    country = Column(String(10)) # e.g., 'US', 'IN'
-    language = Column(String(10)) # e.g., 'en', 'hi'
+    data_source_api = Column(String(50))
+    country = Column(String(10))
+    language = Column(String(10))
     
     source = relationship("Source", back_populates="articles")
 
