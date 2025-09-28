@@ -5,13 +5,15 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatCardModule } from '@angular/material/card';
 import { MatTabsModule } from '@angular/material/tabs';
-import { Chart, ChartConfiguration } from 'chart.js/auto';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { Chart, ChartConfiguration, registerables } from 'chart.js/auto';
 import { ApiService } from '../../services/api.service';
+import 'chartjs-adapter-date-fns';
 
 @Component({
   selector: 'app-topic-detail',
   standalone: true,
-  imports: [CommonModule, MatButtonModule, MatIconModule, MatCardModule, MatTabsModule],
+  imports: [CommonModule, MatButtonModule, MatIconModule, MatCardModule, MatTabsModule, MatProgressSpinnerModule],
   templateUrl: './topic-detail.html',
   styleUrl: './topic-detail.scss'
 })
@@ -31,7 +33,9 @@ export class TopicDetail implements OnInit, AfterViewInit {
     private route: ActivatedRoute,
     private router: Router,
     private apiService: ApiService
-  ) {}
+  ) {
+    Chart.register(...registerables);
+  }
 
   ngOnInit() {
     this.route.params.subscribe(params => {
@@ -45,111 +49,128 @@ export class TopicDetail implements OnInit, AfterViewInit {
   }
 
   loadTopicData() {
-    this.apiService.getTopics().subscribe(
-      (topics) => {
+    this.apiService.getTopics().subscribe({
+      next: (topics) => {
         this.topicData = topics.find(t => t.topic_id === this.topicId);
         if (this.topicData) {
           this.loadAnalyticsData();
         }
         this.isLoading = false;
       },
-      (error) => {
+      error: (error) => {
         console.error('Error loading topic data:', error);
         this.isLoading = false;
       }
-    );
+    });
   }
 
   loadAnalyticsData() {
     // Load channel analytics
-    this.apiService.getChannelAnalytics(this.topicId).subscribe(
-      (data) => {
+    this.apiService.getChannelAnalytics(this.topicId).subscribe({
+      next: (data) => {
         this.channelAnalytics = data;
         console.log('Channel Analytics:', data);
       },
-      (error) => {
+      error: (error) => {
         console.error('Error loading channel analytics:', error);
       }
-    );
+    });
 
     // Load video timeline
-    this.apiService.getVideoTimeline(this.topicId).subscribe(
-      (data) => {
+    this.apiService.getVideoTimeline(this.topicId).subscribe({
+      next: (data) => {
         this.videoTimeline = data;
         console.log('Video Timeline:', data);
         this.createTimelineChart();
       },
-      (error) => {
+      error: (error) => {
         console.error('Error loading video timeline:', error);
       }
-    );
+    });
   }
 
   createTimelineChart() {
-    if (!this.timelineChart || this.videoTimeline.length === 0) return;
+    setTimeout(() => {
+      console.log('Raw timeline data:', this.videoTimeline);
+      console.log('Is array?', Array.isArray(this.videoTimeline));
+      console.log('Data length:', this.videoTimeline?.length);
+      
+      if (!this.timelineChart) {
+        console.log('Canvas element not found');
+        return;
+      }
+      
+      if (!Array.isArray(this.videoTimeline) || this.videoTimeline.length === 0) {
+        console.log('No valid timeline data');
+        return;
+      }
 
-    const ctx = this.timelineChart.nativeElement;
-    
-    // Destroy existing chart if it exists
-    if (this.chart) {
-      this.chart.destroy();
-    }
+      const ctx = this.timelineChart.nativeElement;
+      
+      // Destroy existing chart if it exists
+      if (this.chart) {
+        this.chart.destroy();
+      }
 
-    // Prepare data for chart
-    const chartData = this.videoTimeline.map(video => ({
-      x: video.publication_date,
-      y: video.view_count,
-      label: video.title,
-      channel: video.channel_name
-    }));
-
-    const config: ChartConfiguration = {
-      type: 'scatter',
-      data: {
-        datasets: [{
-          label: 'Video Views Over Time',
-          data: chartData,
-          backgroundColor: 'rgba(54, 162, 235, 0.6)',
-          borderColor: 'rgba(54, 162, 235, 1)',
-          borderWidth: 1
-        }]
-      },
-      options: {
-        responsive: true,
-        plugins: {
-          title: {
-            display: true,
-            text: 'Video Views vs Publication Date'
-          },
-          legend: {
-            display: false
-          }
+      // Test with simple configuration first
+      const config: ChartConfiguration = {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'Video Views',
+            data: this.videoTimeline.map(video => ({
+              x: video.publication_date,
+              y: video.view_count
+            })),
+            backgroundColor: '#36A2EB',
+            borderColor: '#36A2EB',
+            borderWidth: 2,
+            pointRadius: 6
+          }]
         },
-        scales: {
-          x: {
-            type: 'time',
-            time: {
-              displayFormats: {
-                day: 'MMM DD'
-              }
-            },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
             title: {
               display: true,
-              text: 'Publication Date'
+              text: 'Video Views vs Publication Date'
             }
           },
-          y: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: 'Views'
+          scales: {
+            x: {
+              type: 'time',
+              title: {
+                display: true,
+                text: 'Publication Date'
+              }
+            },
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Views'
+              }
             }
           }
         }
-      }
-    };
+      };
 
-    this.chart = new Chart(ctx, config);
+      try {
+        this.chart = new Chart(ctx, config);
+        console.log('Chart created successfully');
+      } catch (error) {
+        console.error('Chart creation failed:', error);
+      }
+    }, 1000); // Increased timeout
+  }
+
+  private getChartColor(index: number): string {
+    const colors = [
+      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+      '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+    ];
+    return colors[index % colors.length];
   }
 
   goBackToLocker() {
