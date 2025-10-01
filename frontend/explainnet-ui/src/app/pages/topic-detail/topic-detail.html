@@ -21,7 +21,7 @@
     </div>
 
     <!-- Tabbed Content -->
-    <mat-tab-group class="topic-tabs">
+    <mat-tab-group class="topic-tabs" (selectedTabChange)="onTabChange($event)">
       <mat-tab label="YouTube Analytics">
         <div class="tab-content">
           <!-- Channel Impact Scores -->
@@ -79,15 +79,146 @@
 
       <mat-tab label="News Analytics">
         <div class="tab-content">
-          <mat-card>
-            <mat-card-header>
-              <mat-card-title>News Source Analytics</mat-card-title>
-              <mat-card-subtitle>{{topicData.article_count}} articles analyzed</mat-card-subtitle>
-            </mat-card-header>
-            <mat-card-content>
-              <p>Source reliability rankings, Guardian vs NewsAPI data, and fetch controls will appear here.</p>
-            </mat-card-content>
-          </mat-card>
+          <!-- News Source Reliability Section -->
+          <div class="analytics-section">
+            <h2>News Source Reliability</h2>
+            <div class="reliability-cards" *ngIf="newsReliability.length > 0">
+              <mat-card class="reliability-card" *ngFor="let source of newsReliability">
+                <mat-card-header>
+                  <mat-card-title>{{source.source_name}}</mat-card-title>
+                  <mat-card-subtitle>Reliability Score: {{source.reliability_score | number:'1.2-2'}}</mat-card-subtitle>
+                </mat-card-header>
+                <mat-card-content>
+                  <div class="reliability-stats">
+                    <div class="stat">
+                      <strong>{{source.avg_response_time | number:'1.1-1'}}</strong>
+                      <span>Avg Response Days</span>
+                    </div>
+                    <div class="stat">
+                      <strong>{{source.total_articles}}</strong>
+                      <span>Articles</span>
+                    </div>
+                    <div class="stat" *ngIf="source.has_author_info">
+                      <strong>{{source.has_author_info | number:'1.1-1'}}%</strong>
+                      <span>Has Author</span>
+                    </div>
+                  </div>
+                </mat-card-content>
+              </mat-card>
+            </div>
+            <div *ngIf="newsReliability.length === 0" class="no-data">
+              <p>No reliability data available. Fetch news articles to see analysis.</p>
+            </div>
+          </div>
+
+          <!-- News Articles Section -->
+          <div class="news-articles-section">
+            <!-- Guardian Articles -->
+            <div class="article-subsection">
+              <div class="section-header">
+                <h3>Historical News Coverage (Guardian)</h3>
+                <button mat-raised-button color="primary" 
+                        (click)="fetchHistoricalNews()" 
+                        [disabled]="isLoadingNews">
+                  <mat-icon *ngIf="isLoadingNews">refresh</mat-icon>
+                  {{ isLoadingNews ? 'Fetching...' : 'Fetch Guardian Articles' }}
+                </button>
+              </div>
+              
+              <div *ngIf="newsData.guardian.length > 0" class="articles-table">
+                <table mat-table [dataSource]="newsData.guardian" class="mat-elevation-z2">
+                  <ng-container matColumnDef="headline">
+                    <th mat-header-cell *matHeaderCellDef>Headline</th>
+                    <td mat-cell *matCellDef="let article">{{article.headline}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="source_name">
+                    <th mat-header-cell *matHeaderCellDef>Source</th>
+                    <td mat-cell *matCellDef="let article">{{article.source_name}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="publication_date">
+                    <th mat-header-cell *matHeaderCellDef>Date</th>
+                    <td mat-cell *matCellDef="let article">{{article.publication_date | date:'short'}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="url">
+                    <th mat-header-cell *matHeaderCellDef>Link</th>
+                    <td mat-cell *matCellDef="let article">
+                      <a [href]="article.url" target="_blank" mat-button>
+                        <mat-icon>open_in_new</mat-icon>
+                        Read
+                      </a>
+                    </td>
+                  </ng-container>
+                  
+                  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+                </table>
+                <p class="article-count">Showing {{newsData.guardian.length}} Guardian articles</p>
+              </div>
+              
+              <div *ngIf="newsData.guardian.length === 0 && !isLoadingNews" class="no-data">
+                <p>No Guardian articles loaded. Click the button above to fetch historical news.</p>
+              </div>
+            </div>
+
+            <!-- NewsAPI Articles -->
+            <div class="article-subsection">
+              <div class="section-header">
+                <h3>Recent News Coverage (NewsAPI)</h3>
+                <button mat-raised-button color="accent" 
+                        (click)="fetchRecentNews()" 
+                        [disabled]="isLoadingNews">
+                  <mat-icon *ngIf="isLoadingNews">refresh</mat-icon>
+                  {{ isLoadingNews ? 'Fetching...' : 'Fetch Recent News' }}
+                </button>
+              </div>
+              
+              <div *ngIf="newsData.newsapi.length > 0" class="articles-table">
+                <table mat-table [dataSource]="newsData.newsapi" class="mat-elevation-z2">
+                  <ng-container matColumnDef="headline">
+                    <th mat-header-cell *matHeaderCellDef>Headline</th>
+                    <td mat-cell *matCellDef="let article">{{article.headline}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="source_name">
+                    <th mat-header-cell *matHeaderCellDef>Source</th>
+                    <td mat-cell *matCellDef="let article">{{article.source_name}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="publication_date">
+                    <th mat-header-cell *matHeaderCellDef>Date</th>
+                    <td mat-cell *matCellDef="let article">{{article.publication_date | date:'short'}}</td>
+                  </ng-container>
+                  
+                  <ng-container matColumnDef="url">
+                    <th mat-header-cell *matHeaderCellDef>Link</th>
+                    <td mat-cell *matCellDef="let article">
+                      <a [href]="article.url" target="_blank" mat-button>
+                        <mat-icon>open_in_new</mat-icon>
+                        Read
+                      </a>
+                    </td>
+                  </ng-container>
+                  
+                  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+                  <tr mat-row *matRowDef="let row; columns: displayedColumns;"></tr>
+                </table>
+                <p class="article-count">Showing {{newsData.newsapi.length}} recent articles</p>
+              </div>
+              
+              <div *ngIf="newsData.newsapi.length === 0 && !isLoadingNews" class="no-data">
+                <p>No recent articles loaded. Click the button above to fetch recent news.</p>
+              </div>
+            </div>
+
+            <!-- Loading State for News -->
+            <div *ngIf="isLoadingNews" class="loading-container">
+              <mat-spinner diameter="40"></mat-spinner>
+              <p>Fetching news articles...</p>
+            </div>
+          </div>
         </div>
       </mat-tab>
 

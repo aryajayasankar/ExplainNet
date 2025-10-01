@@ -4,13 +4,7 @@ import { ApiService } from '../../services/api.service';
 import { MatTableModule } from '@angular/material/table';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { Router } from '@angular/router';
-
-export interface TopicData {
-  topic_id: number;
-  topic_name: string;
-  article_count: number;
-  video_count: number;
-}
+import { Topic } from '../../models/topicmodel';
 
 @Component({
   selector: 'app-locker',
@@ -21,7 +15,7 @@ export interface TopicData {
 })
 export class Locker implements OnInit {
   isLoading = true;
-  topics: TopicData[] = [];
+  topics: Topic[] = [];
   displayedColumns: string[] = ['topic_name', 'article_count', 'video_count'];
 
   constructor(private apiService: ApiService, private router: Router) {}
@@ -39,7 +33,7 @@ export class Locker implements OnInit {
     });
   }
 
-  navigateToTopic(topic: TopicData): void {
+  navigateToTopic(topic: Topic): void {
     this.router.navigate(['/locker', topic.topic_id]);
   }
 }

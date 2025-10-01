@@ -8,6 +8,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatSelectModule } from '@angular/material/select';
 import { FormsModule } from '@angular/forms';
+import { Topic } from '../../models/topicmodel';
 
 @Component({
   selector: 'app-locker',
@@ -29,7 +30,7 @@ export class LockerComponent implements OnInit {
   activeTab: 'youtube' | 'news' = 'youtube';
   activeNewsTab: 'guardian' | 'overall' = 'guardian';
   selectedTopic: string = '';
-  topics: any[] = []; // Changed from string[] to any[] to store full topic objects
+  topics: Topic[] = []; // Changed to use proper Topic interface
   viewsChart: any;
   
   youtubeMetrics = {
@@ -58,7 +59,7 @@ export class LockerComponent implements OnInit {
   }
 
   // ADD THIS METHOD - This was missing!
-  navigateToTopic(row: any) {
+  navigateToTopic(row: Topic) {
     console.log('Navigating to topic:', row);
     this.router.navigate(['/locker', row.topic_id]);
   }

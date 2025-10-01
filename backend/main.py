@@ -138,6 +138,23 @@ def analyze_comment_sentiment(comments):
 @app.get("/topics/", response_model=list[schemas.Topic])
 def read_topics(db: Session = Depends(get_db)):
     return crud.get_topics_with_stats(db)
+
+@app.get("/topics/{topic_id}")
+def get_topic_by_id(topic_id: int, db: Session = Depends(get_db)):
+    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    
+    # Get stats for this topic
+    article_count = db.query(models.Article).filter(models.Article.topic_id == topic_id).count()
+    video_count = db.query(models.Video).filter(models.Video.topic_id == topic_id).count()
+    
+    return {
+        "topic_id": topic.topic_id,
+        "topic_name": topic.topic_name,
+        "article_count": article_count,
+        "video_count": video_count
+    }
     
 @app.get("/topics/{topic_id}/inference/", response_model=schemas.InferenceResponse)
 def get_inference(topic_id: int, db: Session = Depends(get_db)):
@@ -370,3 +387,84 @@ def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
         print(f"Saved {len(youtube_videos)} videos and their comments to DB.")
     
     return {"status": "success", "topic_id": topic.topic_id, "message": "Initial analysis complete."}
+
+# ANALYTICS ENDPOINTS - Get all data across topics
+@app.get("/analytics/videos/")
+def get_all_videos(db: Session = Depends(get_db)):
+    """Get all videos across all topics for analytics"""
+    videos = db.query(models.Video).order_by(desc(models.Video.publication_date)).all()
+    
+    video_data = []
+    for i, video in enumerate(videos, 1):
+        source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
+        topic = db.query(models.Topic).filter(models.Topic.topic_id == video.topic_id).first()
+        
+        video_data.append({
+            "sno": i,
+            "title": video.title,
+            "publish_date": video.publication_date.isoformat() if video.publication_date else None,
+            "url": video.url,
+            "source_name": source.source_name if source else "YouTube",
+            "topic_name": topic.topic_name if topic else "Unknown",
+            "view_count": int(video.view_count or 0),
+            "like_count": int(video.like_count or 0),
+            "comment_count": int(video.comment_count or 0)
+        })
+    
+    return {
+        "videos": video_data,
+        "total_count": len(video_data)
+    }
+
+@app.get("/analytics/recent-news/")
+def get_all_recent_news(db: Session = Depends(get_db)):
+    """Get all recent news (NewsAPI) across all topics for analytics"""
+    articles = db.query(models.Article).filter(
+        models.Article.data_source_api == "NewsAPI.org"
+    ).order_by(desc(models.Article.publication_date)).all()
+    
+    news_data = []
+    for i, article in enumerate(articles, 1):
+        source = db.query(models.Source).filter(models.Source.source_id == article.source_id).first()
+        topic = db.query(models.Topic).filter(models.Topic.topic_id == article.topic_id).first()
+        
+        news_data.append({
+            "sno": i,
+            "title": article.headline,
+            "publish_date": article.publication_date.isoformat() if article.publication_date else None,
+            "url": article.url,
+            "source_name": source.source_name if source else "Unknown",
+            "topic_name": topic.topic_name if topic else "Unknown",
+            "author": article.author
+        })
+    
+    return {
+        "articles": news_data,
+        "total_count": len(news_data)
+    }
+
+@app.get("/analytics/older-news/")
+def get_all_older_news(db: Session = Depends(get_db)):
+    """Get all older news (Guardian) across all topics for analytics"""
+    articles = db.query(models.Article).filter(
+        models.Article.data_source_api == "Guardian"
+    ).order_by(desc(models.Article.publication_date)).all()
+    
+    news_data = []
+    for i, article in enumerate(articles, 1):
+        topic = db.query(models.Topic).filter(models.Topic.topic_id == article.topic_id).first()
+        
+        news_data.append({
+            "sno": i,
+            "title": article.headline,
+            "publish_date": article.publication_date.isoformat() if article.publication_date else None,
+            "url": article.url,
+            "source_name": "The Guardian",
+            "topic_name": topic.topic_name if topic else "Unknown",
+            "author": article.author
+        })
+    
+    return {
+        "articles": news_data,
+        "total_count": len(news_data)
+    }
