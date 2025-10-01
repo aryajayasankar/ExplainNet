@@ -33,9 +33,17 @@ export class ApiService {
     );
   }
 
-  getTopics(): Observable<Topic[]> {
-    const endpoint = `${this.backendUrl}/topics/`;
+  getTopics(timezone: string = 'UTC'): Observable<Topic[]> {
+    const endpoint = `${this.backendUrl}/topics/?timezone=${encodeURIComponent(timezone)}`;
     return this.http.get<Topic[]>(endpoint).pipe(
+      retry(1),
+      catchError(this.handleError)
+    );
+  }
+
+  getTimezones(): Observable<any> {
+    const endpoint = `${this.backendUrl}/timezones/`;
+    return this.http.get(endpoint).pipe(
       retry(1),
       catchError(this.handleError)
     );

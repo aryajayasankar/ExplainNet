@@ -7,6 +7,7 @@ import { MatTableModule } from '@angular/material/table';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatSelectModule } from '@angular/material/select';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { FormsModule } from '@angular/forms';
 import { Topic } from '../../models/topicmodel';
 
@@ -21,15 +22,18 @@ import { Topic } from '../../models/topicmodel';
     MatProgressSpinnerModule,
     MatTabsModule,
     MatSelectModule,
+    MatFormFieldModule,
     FormsModule
   ]
 })
 export class LockerComponent implements OnInit {
-  displayedColumns: string[] = ['topic_name', 'article_count', 'video_count'];
+  displayedColumns: string[] = ['topic_name', 'search_date', 'article_count', 'video_count'];
   isLoading = false;
   activeTab: 'youtube' | 'news' = 'youtube';
   activeNewsTab: 'guardian' | 'overall' = 'guardian';
   selectedTopic: string = '';
+  selectedTimezone: string = 'UTC';
+  timezones: any[] = [];
   topics: Topic[] = []; // Changed to use proper Topic interface
   viewsChart: any;
   
@@ -54,6 +58,7 @@ export class LockerComponent implements OnInit {
   constructor(private apiService: ApiService, private router: Router) {}
 
   ngOnInit() {
+    this.loadTimezones();
     this.loadTopics();
     this.loadMetrics();
   }
@@ -64,8 +69,23 @@ export class LockerComponent implements OnInit {
     this.router.navigate(['/locker', row.topic_id]);
   }
 
+  loadTimezones() {
+    this.apiService.getTimezones().subscribe(
+      (data) => {
+        this.timezones = data.timezones;
+      },
+      (error) => {
+        console.error('Error loading timezones:', error);
+      }
+    );
+  }
+
+  onTimezoneChange() {
+    this.loadTopics();
+  }
+
   loadTopics() {
-    this.apiService.getTopics().subscribe(
+    this.apiService.getTopics(this.selectedTimezone).subscribe(
       (data) => {
         this.topics = data; // Store full objects instead of just names
         if (this.topics.length > 0) {

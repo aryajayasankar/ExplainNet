@@ -3,12 +3,21 @@ from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, desc
 from textblob import TextBlob
-from . import crud, models, schemas, pipeline, database
+
+# Handle imports for both package and direct execution
+try:
+    # When running as a package (uvicorn backend.main:app)
+    from . import crud, models, schemas, pipeline, database
+except ImportError:
+    # When running directly (python main.py)
+    import crud, models, schemas, pipeline, database
+
 import statistics
 from datetime import datetime
 from typing import Dict, List
 from langdetect import detect, DetectorFactory
 import re
+import pytz
 
 # Try to import ml_pipeline, but don't fail if it's not available yet
 try:
@@ -35,6 +44,66 @@ def get_db():
         yield db
     finally: 
         db.close()
+
+# Timezone utility functions
+def get_available_timezones():
+    """Get list of common timezones"""
+    common_timezones = [
+        'UTC',
+        'US/Pacific', 'US/Mountain', 'US/Central', 'US/Eastern',
+        'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Rome', 'Europe/Madrid',
+        'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore',
+        'Australia/Sydney', 'Australia/Melbourne',
+        'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+        'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo', 'America/Mexico_City',
+        'Africa/Cairo', 'Africa/Johannesburg',
+        'Pacific/Auckland'
+    ]
+    
+    timezone_list = []
+    for tz_name in common_timezones:
+        try:
+            tz = pytz.timezone(tz_name)
+            # Get current UTC time
+            utc_now = datetime.utcnow().replace(tzinfo=pytz.UTC)
+            # Convert to this timezone
+            local_time = utc_now.astimezone(tz)
+            offset = local_time.strftime('%z')
+            
+            timezone_list.append({
+                'name': tz_name,
+                'display_name': f"{tz_name} (UTC{offset[:3]}:{offset[3:]})",
+                'offset': offset
+            })
+        except:
+            continue
+    
+    return timezone_list
+
+def convert_datetime_to_timezone(dt_str, target_timezone):
+    """Convert datetime string to target timezone"""
+    if not dt_str:
+        return None
+    
+    try:
+        # Parse the datetime (assuming it's stored as UTC)
+        if isinstance(dt_str, str):
+            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        else:
+            dt = dt_str
+        
+        # Make it timezone aware as UTC if it's naive
+        if dt.tzinfo is None:
+            dt = pytz.UTC.localize(dt)
+        
+        # Convert to target timezone
+        target_tz = pytz.timezone(target_timezone)
+        converted_dt = dt.astimezone(target_tz)
+        
+        return converted_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
+    except Exception as e:
+        print(f"Error converting datetime: {e}")
+        return dt_str
 
 # Helper functions for analytics
 def calculate_channel_impact_score(db: Session, source_id: int, topic_id: int = None):
@@ -135,9 +204,17 @@ def analyze_comment_sentiment(comments):
     }
 
 # Existing endpoints
-@app.get("/topics/", response_model=list[schemas.Topic])
-def read_topics(db: Session = Depends(get_db)):
-    return crud.get_topics_with_stats(db)
+@app.get("/topics/")
+def read_topics(timezone: str = "UTC", db: Session = Depends(get_db)):
+    """Get topics with dates converted to specified timezone"""
+    topics = crud.get_topics_with_stats(db)
+    
+    # Convert search_date to the specified timezone
+    for topic in topics:
+        if topic.get('search_date'):
+            topic['search_date'] = convert_datetime_to_timezone(topic['search_date'], timezone)
+    
+    return topics
 
 @app.get("/topics/{topic_id}")
 def get_topic_by_id(topic_id: int, db: Session = Depends(get_db)):
@@ -155,6 +232,12 @@ def get_topic_by_id(topic_id: int, db: Session = Depends(get_db)):
         "article_count": article_count,
         "video_count": video_count
     }
+
+# TIMEZONE ENDPOINTS
+@app.get("/timezones/")
+def get_timezones():
+    """Get list of available timezones"""
+    return {"timezones": get_available_timezones()}
     
 @app.get("/topics/{topic_id}/inference/", response_model=schemas.InferenceResponse)
 def get_inference(topic_id: int, db: Session = Depends(get_db)):
@@ -376,7 +459,10 @@ def fetch_recent_news(topic_id: int, db: Session = Depends(get_db)):
 def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
     topic = crud.get_or_create_topic(db, topic_name=req.topic_name)
     
-    print("--- Starting Initial Data Collection (YouTube only) ---")
+    print("--- Starting Data Collection ---")
+    
+    # Collect YouTube data
+    print("--- Collecting YouTube data ---")
     youtube_videos = pipeline.collect_youtube_data(req.topic_name)
     print("--- YouTube Collection Finished ---")
 
@@ -386,7 +472,42 @@ def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
             crud.create_video_with_comments(db, video=video_data, topic_id=topic.topic_id, source_id=source.source_id)
         print(f"Saved {len(youtube_videos)} videos and their comments to DB.")
     
-    return {"status": "success", "topic_id": topic.topic_id, "message": "Initial analysis complete."}
+    # Collect Guardian news data (older/historical articles)
+    print("--- Collecting Guardian news data ---")
+    guardian_articles = pipeline.collect_guardian_data(req.topic_name)
+    print("--- Guardian Collection Finished ---")
+    
+    if guardian_articles:
+        for article_data in guardian_articles:
+            source = crud.get_or_create_source(db, source_name=article_data['source_name'], platform="News")
+            crud.create_article(db, article=article_data, topic_id=topic.topic_id, source_id=source.source_id)
+        print(f"Saved {len(guardian_articles)} Guardian articles to DB.")
+    
+    # Collect NewsAPI.org data (recent headlines)
+    print("--- Collecting NewsAPI.org data ---")
+    newsapi_articles = pipeline.collect_newsapi_org_data(req.topic_name)
+    print("--- NewsAPI.org Collection Finished ---")
+    
+    if newsapi_articles:
+        for article_data in newsapi_articles:
+            source = crud.get_or_create_source(db, source_name=article_data['source_name'], platform="News")
+            crud.create_article(db, article=article_data, topic_id=topic.topic_id, source_id=source.source_id)
+        print(f"Saved {len(newsapi_articles)} NewsAPI.org articles to DB.")
+    
+    total_videos = len(youtube_videos) if youtube_videos else 0
+    total_guardian = len(guardian_articles) if guardian_articles else 0
+    total_newsapi = len(newsapi_articles) if newsapi_articles else 0
+    
+    return {
+        "status": "success", 
+        "topic_id": topic.topic_id, 
+        "message": f"Analysis complete. Collected {total_videos} videos, {total_guardian} Guardian articles, {total_newsapi} NewsAPI articles.",
+        "stats": {
+            "videos": total_videos,
+            "guardian_articles": total_guardian,
+            "newsapi_articles": total_newsapi
+        }
+    }
 
 # ANALYTICS ENDPOINTS - Get all data across topics
 @app.get("/analytics/videos/")
@@ -468,3 +589,7 @@ def get_all_older_news(db: Session = Depends(get_db)):
         "articles": news_data,
         "total_count": len(news_data)
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

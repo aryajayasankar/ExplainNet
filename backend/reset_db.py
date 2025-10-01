@@ -1,18 +1,49 @@
+import os
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Get database URL
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL environment variable not set!")
+
+# Create engine
+engine = create_engine(DATABASE_URL)
+
+print("Connecting to database...")
+with engine.connect() as conn:
+    # Drop all tables manually
+    print("Dropping all existing tables...")
+    conn.execute(text("DROP TABLE IF EXISTS comments CASCADE;"))
+    conn.execute(text("DROP TABLE IF EXISTS articles CASCADE;"))
+    conn.execute(text("DROP TABLE IF EXISTS videos CASCADE;"))
+    conn.execute(text("DROP TABLE IF EXISTS sources CASCADE;"))
+    conn.execute(text("DROP TABLE IF EXISTS topics CASCADE;"))
+    conn.commit()
+    print("All tables dropped.")
+
+# Now import and create tables
+print("Creating tables with new schema...")
+import sys
+sys.path.append('.')
+
+# Temporarily modify models.py import
+import database
 from sqlalchemy import Column, Integer, String, Text, TIMESTAMP, ForeignKey
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
-try:
-    from .database import Base
-except ImportError:
-    from database import Base
+Base = database.Base
 
 class Topic(Base):
     __tablename__ = 'topics'
     topic_id = Column(Integer, primary_key=True)
     topic_name = Column(Text, nullable=False, unique=True)
     search_date = Column(TIMESTAMP, default=datetime.utcnow)
-    # Removed extra columns that don't exist in your actual database
 
 class Source(Base):
     __tablename__ = 'sources'
@@ -60,9 +91,14 @@ class Comment(Base):
     comment_id = Column(String(255), primary_key=True)
     video_id = Column(String(255), ForeignKey('videos.video_id'))
     topic_id = Column(Integer, ForeignKey('topics.topic_id'))
-    comment_text = Column(Text)
+    comment_text = Column(Text, nullable=False)
     author_name = Column(Text)
     publication_date = Column(TIMESTAMP)
     like_count = Column(Integer)
-
+    
     video = relationship("Video", back_populates="comments")
+
+# Create all tables
+Base.metadata.create_all(bind=engine)
+print("All tables created successfully!")
+print("Database has been cleared and recreated with search_date column.")

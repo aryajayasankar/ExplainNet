@@ -1,12 +1,22 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
-from . import models
+from datetime import datetime
+
+try:
+    from . import models
+except ImportError:
+    import models
 
 def get_or_create_topic(db: Session, topic_name: str):
     topic = db.query(models.Topic).filter(models.Topic.topic_name == topic_name).first()
     if not topic:
-        topic = models.Topic(topic_name=topic_name)
+        topic = models.Topic(topic_name=topic_name, search_date=datetime.utcnow())
         db.add(topic)
+        db.commit()
+        db.refresh(topic)
+    else:
+        # Update search_date when topic is analyzed again
+        topic.search_date = datetime.utcnow()
         db.commit()
         db.refresh(topic)
     return topic
@@ -21,6 +31,12 @@ def get_or_create_source(db: Session, source_name: str, platform: str):
     return source
 
 def create_article(db: Session, article: dict, topic_id: int, source_id: int):
+    # Check if article already exists (by URL)
+    existing_article = db.query(models.Article).filter(models.Article.url == article['url']).first()
+    if existing_article:
+        # Article already exists, skip
+        return existing_article
+    
     db_article = models.Article(
         topic_id=topic_id, source_id=source_id,
         headline=article['headline'], url=article['url'],
@@ -77,6 +93,7 @@ def get_topics_with_stats(db: Session):
         result.append({
             "topic_id": topic.topic_id,
             "topic_name": topic.topic_name,
+            "search_date": topic.search_date,
             "article_count": article_count,
             "video_count": video_count
         })

@@ -8,6 +8,7 @@ class TopicCreate(BaseModel):
 class Topic(BaseModel):
     topic_id: int
     topic_name: str
+    search_date: Optional[datetime] = None
     article_count: int
     video_count: int
 

@@ -2,7 +2,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 import numpy as np
-from . import models
+
+try:
+    from . import models
+except ImportError:
+    import models
 
 def calculate_channel_impact_score(db: Session, channel_id: int) -> float:
     """Calculate impact score for a YouTube channel based on multiple factors"""

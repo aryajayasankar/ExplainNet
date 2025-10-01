@@ -24,6 +24,54 @@
     <mat-tab-group class="topic-tabs" (selectedTabChange)="onTabChange($event)">
       <mat-tab label="YouTube Analytics">
         <div class="tab-content">
+          <!-- Video Timeline Visualization -->
+          <div class="analytics-section">
+            <h2>Video Performance Timeline</h2>
+            <div class="chart-controls">
+              <div class="control-row">
+                <div class="chart-info">
+                  <h3>📊 Individual Video Performance</h3>
+                  <p>Click on any bar to open the video on YouTube</p>
+                </div>
+              </div>
+              
+              <div class="filter-controls">
+                <mat-form-field appearance="outline" class="filter-field">
+                  <mat-label>Videos to Show</mat-label>
+                  <mat-select [(value)]="channelLimit" (selectionChange)="updateChart()">
+                    <mat-option value="1">1 Video</mat-option>
+                    <mat-option value="2">2 Videos</mat-option>
+                    <mat-option value="3">3 Videos</mat-option>
+                    <mat-option value="4">4 Videos</mat-option>
+                    <mat-option value="5">5 Videos</mat-option>
+                    <mat-option value="6">6 Videos</mat-option>
+                    <mat-option value="7">7 Videos</mat-option>
+                    <mat-option value="8">8 Videos</mat-option>
+                    <mat-option value="9">9 Videos</mat-option>
+                    <mat-option value="10">10 Videos</mat-option>
+                  </mat-select>
+                </mat-form-field>
+                
+                <mat-form-field appearance="outline" class="filter-field">
+                  <mat-label>Sort By</mat-label>
+                  <mat-select [(value)]="sortBy" (selectionChange)="updateChart()">
+                    <mat-option value="views_desc">Views (High to Low)</mat-option>
+                    <mat-option value="views_asc">Views (Low to High)</mat-option>
+                    <mat-option value="name_asc">Channel Name (A-Z)</mat-option>
+                    <mat-option value="name_desc">Channel Name (Z-A)</mat-option>
+                  </mat-select>
+                </mat-form-field>
+              </div>
+            </div>
+            <mat-card class="chart-card">
+              <mat-card-content>
+                <div class="chart-container">
+                  <canvas id="timelineChart" width="800" height="400"></canvas>
+                </div>
+              </mat-card-content>
+            </mat-card>
+          </div>
+
           <!-- Channel Impact Scores -->
           <div class="analytics-section">
             <h2>Channel Impact Rankings</h2>
@@ -63,16 +111,6 @@
                 </mat-card-content>
               </mat-card>
             </div>
-          </div>
-
-          <!-- Views Timeline Chart -->
-          <div class="analytics-section">
-            <h2>Video Performance Timeline</h2>
-            <mat-card class="chart-card">
-              <mat-card-content>
-                <canvas #timelineChart width="800" height="400"></canvas>
-              </mat-card-content>
-            </mat-card>
           </div>
         </div>
       </mat-tab>

@@ -61,6 +61,124 @@
   }
 }
 
+// Chart styling - Enhanced visual appeal with vibrant colors
+.chart-container {
+  background: linear-gradient(135deg, #f8f9fc 0%, #ffffff 100%);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+  margin-bottom: 24px;
+  border: 1px solid #e8eaf6;
+  transition: all 0.3s ease;
+
+  &:hover {
+    box-shadow: 
+      0 12px 40px rgba(0, 0, 0, 0.15),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+  }
+
+  canvas {
+    max-width: 100%;
+    height: auto !important;
+    min-height: 400px;
+    border-radius: 8px;
+  }
+}
+
+.chart-controls {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+
+  mat-button-toggle-group {
+    background: white;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+
+    mat-button-toggle {
+      border: none;
+      padding: 14px 24px;
+      font-weight: 600;
+      color: #667eea;
+      transition: all 0.3s ease;
+      font-size: 14px;
+
+      &:hover {
+        background-color: rgba(102, 126, 234, 0.1);
+        transform: translateY(-1px);
+      }
+
+      &.mat-button-toggle-checked {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      }
+    }
+  }
+
+  .control-row {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+
+    .chart-info {
+      text-align: center;
+      color: white;
+
+      h3 {
+        margin: 0 0 8px 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      p {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+      }
+    }
+  }
+
+  .filter-controls {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+
+    .filter-field {
+      min-width: 160px;
+      
+      .mat-mdc-form-field {
+        background: white;
+        border-radius: 8px;
+        
+        .mat-mdc-select {
+          color: #667eea;
+          font-weight: 500;
+        }
+        
+        .mat-mdc-form-field-outline {
+          color: rgba(102, 126, 234, 0.3);
+        }
+        
+        &.mat-focused .mat-mdc-form-field-outline {
+          color: #667eea;
+        }
+      }
+    }
+  }
+}
+
 .channel-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
