@@ -1,122 +1,164 @@
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
+﻿from sqlalchemy.orm import Session
+from typing import List, Optional
+from . import models
+from . import schemas
 from datetime import datetime
 
-try:
-    from . import models
-except ImportError:
-    import models
 
-def get_or_create_topic(db: Session, topic_name: str):
-    topic = db.query(models.Topic).filter(models.Topic.topic_name == topic_name).first()
-    if not topic:
-        topic = models.Topic(topic_name=topic_name, search_date=datetime.utcnow())
-        db.add(topic)
-        db.commit()
-        db.refresh(topic)
-    else:
-        # Update search_date when topic is analyzed again
-        topic.search_date = datetime.utcnow()
+def get_topics(db: Session, skip: int = 0, limit: int = 100):
+    return db.query(models.Topic).order_by(models.Topic.created_at.desc()).offset(skip).limit(limit).all()
+
+
+def get_topic(db: Session, topic_id: int):
+    return db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+
+
+def create_topic(db: Session, topic):
+    db_topic = models.Topic(topic_name=topic.topic_name, analysis_status="pending")
+    db.add(db_topic)
+    db.commit()
+    db.refresh(db_topic)
+    return db_topic
+
+
+def update_topic_status(db: Session, topic_id: int, status: str, error_message: str = None):
+    topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+    if topic:
+        topic.analysis_status = status
+        topic.last_analyzed_at = datetime.now()
+        if error_message:
+            topic.error_message = error_message
         db.commit()
         db.refresh(topic)
     return topic
 
-def get_or_create_source(db: Session, source_name: str, platform: str):
-    source = db.query(models.Source).filter(models.Source.source_name == source_name).first()
-    if not source:
-        source = models.Source(source_name=source_name, platform=platform)
-        db.add(source)
-        db.commit()
-        db.refresh(source)
-    return source
 
-def create_article(db: Session, article: dict, topic_id: int, source_id: int):
-    # Check if article already exists (by URL)
-    existing_article = db.query(models.Article).filter(models.Article.url == article['url']).first()
-    if existing_article:
-        # Article already exists, skip
-        return existing_article
-    
-    db_article = models.Article(
-        topic_id=topic_id, source_id=source_id,
-        headline=article['headline'], url=article['url'],
-        author=article.get('author'), publication_date=article.get('publication_date'),
-        full_text=article.get('full_text'), data_source_api=article.get('data_source_api'),
-        country=article.get('country'), language=article.get('language')
-    )
+def delete_topic(db: Session, topic_id: int):
+    topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+    if topic:
+        db.delete(topic)
+        db.commit()
+        return True
+    return False
+
+
+def create_video(db: Session, video_data: dict, topic_id: int):
+    # If a video with the same external `video_id` already exists, update and return it
+    vid = video_data.get('video_id')
+    if vid:
+        existing = db.query(models.Video).filter(models.Video.video_id == vid).first()
+        if existing:
+            # Update only allowed columns to avoid unexpected attributes
+            allowed_cols = {c.name for c in models.Video.__table__.columns}
+            for k, v in video_data.items():
+                if k in allowed_cols and k != 'id':
+                    setattr(existing, k, v)
+            existing.topic_id = topic_id
+            db.commit()
+            db.refresh(existing)
+            return existing
+
+    db_video = models.Video(topic_id=topic_id, **video_data)
+    db.add(db_video)
+    db.commit()
+    db.refresh(db_video)
+    return db_video
+
+
+def get_videos_by_topic(db: Session, topic_id: int):
+    return db.query(models.Video).filter(models.Video.topic_id == topic_id).all()
+
+
+def get_video(db: Session, video_id: int):
+    return db.query(models.Video).filter(models.Video.id == video_id).first()
+
+
+def update_video_scores(db: Session, video_id: int, scores: dict):
+    video = db.query(models.Video).filter(models.Video.id == video_id).first()
+    if video:
+        for key, value in scores.items():
+            setattr(video, key, value)
+        db.commit()
+        db.refresh(video)
+    return video
+
+
+def create_transcript(db: Session, transcript_data: dict, video_id: int):
+    # Remove fields not in the Transcript model (like 'source', 'status', 'duration')
+    transcript_data_for_db = {k: v for k, v in transcript_data.items() if k not in ['source', 'status', 'duration']}
+    db_transcript = models.Transcript(video_id=video_id, **transcript_data_for_db)
+    db.add(db_transcript)
+    db.commit()
+    db.refresh(db_transcript)
+    return db_transcript
+
+
+def create_sentiment(db: Session, sentiment_data: dict, video_id: int):
+    # Normalize keys and remove unexpected fields
+    if not isinstance(sentiment_data, dict):
+        sentiment_data = {}
+
+    data = {k: v for k, v in sentiment_data.items() if k != 'error'}
+
+    # If the model returned no sentiment (None), mark it as UNKNOWN so DB constraints are satisfied
+    if data.get('sentiment') is None:
+        data['sentiment'] = 'UNKNOWN'
+    # Ensure confidence exists
+    if 'confidence' not in data or data.get('confidence') is None:
+        data['confidence'] = 0.0
+
+    model_name = (data.get('model_name') or '').lower()
+    # Map generic 'justification' to model-specific column names
+    if 'justification' in data:
+        if 'huggingface' in model_name:
+            data['hf_justification'] = data.pop('justification')
+        elif 'gemini' in model_name:
+            data['gemini_justification'] = data.pop('justification')
+
+    # Map generic sarcasm_score to gemini_sarcasm_score
+    if 'sarcasm_score' in data and 'gemini' in model_name:
+        data['gemini_sarcasm_score'] = data.get('sarcasm_score')
+
+    # Only include columns that exist on the Sentiment model
+    allowed_cols = {c.name for c in models.Sentiment.__table__.columns}
+    filtered = {k: v for k, v in data.items() if k in allowed_cols}
+
+    db_sentiment = models.Sentiment(video_id=video_id, **filtered)
+    db.add(db_sentiment)
+    db.commit()
+    db.refresh(db_sentiment)
+    return db_sentiment
+
+
+def get_sentiments_by_video(db: Session, video_id: int):
+    return db.query(models.Sentiment).filter(models.Sentiment.video_id == video_id).all()
+
+
+def create_comment(db: Session, comment_data: dict, video_id: int):
+    # Only include allowed columns to avoid unexpected kwargs
+    allowed_cols = {c.name for c in models.Comment.__table__.columns}
+    filtered = {k: v for k, v in comment_data.items() if k in allowed_cols}
+    db_comment = models.Comment(video_id=video_id, **filtered)
+    db.add(db_comment)
+    db.commit()
+    db.refresh(db_comment)
+    return db_comment
+
+
+def get_comments_by_video(db: Session, video_id: int, limit: int = 100):
+    return db.query(models.Comment).filter(models.Comment.video_id == video_id).limit(limit).all()
+
+
+def create_article(db: Session, article_data: dict, topic_id: int):
+    # Filter article_data to only columns present in the NewsArticle model to avoid unexpected kwargs
+    allowed_cols = {c.name for c in models.NewsArticle.__table__.columns}
+    filtered = {k: v for k, v in article_data.items() if k in allowed_cols}
+    db_article = models.NewsArticle(topic_id=topic_id, **filtered)
     db.add(db_article)
     db.commit()
     db.refresh(db_article)
     return db_article
 
-def create_video_with_comments(db: Session, video: dict, topic_id: int, source_id: int):
-    existing = db.query(models.Video).filter(models.Video.video_id == video['video_id']).first()
-    if existing:
-        return existing
-    
-    db_video = models.Video(
-        video_id=video['video_id'], topic_id=topic_id, source_id=source_id,
-        title=video['title'], url=f"https://www.youtube.com/watch?v={video['video_id']}",
-        publication_date=video.get('publication_date'), description=video.get('description'),
-        view_count=video.get('view_count'), like_count=video.get('like_count'),
-        comment_count=video.get('comment_count')
-    )
-    db.add(db_video)
-    db.commit()
-    db.refresh(db_video)
-    
-    for c in video.get('comments', []):
-        db.add(models.Comment(
-            comment_id=c['comment_id'], 
-            video_id=db_video.video_id, 
-            topic_id=topic_id, 
-            comment_text=c.get('comment_text'), 
-            author_name=c.get('author_name'), 
-            publication_date=c.get('publication_date'), 
-            like_count=c.get('like_count')
-        ))
-    db.commit()
-    return db_video
 
-# SIMPLE VERSION - just get basic topic data
-def get_topics_with_stats(db: Session):
-    # First, let's just get topics without any joins to test
-    topics = db.query(models.Topic).all()
-    result = []
-    
-    for topic in topics:
-        # Count articles manually
-        article_count = db.query(models.Article).filter(models.Article.topic_id == topic.topic_id).count()
-        # Count videos manually  
-        video_count = db.query(models.Video).filter(models.Video.topic_id == topic.topic_id).count()
-        
-        result.append({
-            "topic_id": topic.topic_id,
-            "topic_name": topic.topic_name,
-            "search_date": topic.search_date,
-            "article_count": article_count,
-            "video_count": video_count
-        })
-    
-    return result
-
-def get_news_reliability_for_topic(db: Session, topic_id: int):
-    articles = (db.query(models.Article).options(joinedload(models.Article.source)).filter(models.Article.topic_id == topic_id, models.Article.data_source_api == 'NewsAPI.org').order_by(models.Article.publication_date.asc()).all())
-    if not articles: 
-        return []
-    
-    ranked_sources, seen_ids = [], set()
-    for article in articles:
-        if article.source and article.source_id not in seen_ids:
-            ranked_sources.append({
-                "source_id": article.source_id, 
-                "source_name": article.source.source_name, 
-                "publication_date": article.publication_date
-            })
-            seen_ids.add(article.source_id)
-    
-    for i, source in enumerate(ranked_sources):
-        source["rank"] = i + 1
-        source["speed_score"] = max(0, 100 - i * 10)
-    
-    return ranked_sources
+def get_articles_by_topic(db: Session, topic_id: int):
+    return db.query(models.NewsArticle).filter(models.NewsArticle.topic_id == topic_id).all()

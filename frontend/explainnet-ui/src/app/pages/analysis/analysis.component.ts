@@ -1,175 +1,247 @@
-import { Component, OnInit } from '@angular/core';
+﻿import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { MatInputModule } from '@angular/material/input';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatButtonModule } from '@angular/material/button';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatTabsModule } from '@angular/material/tabs';
-import { MatTableModule } from '@angular/material/table';
-import { MatIconModule } from '@angular/material/icon';
-import { MatCardModule } from '@angular/material/card';
-import { MatPaginatorModule } from '@angular/material/paginator';
-import { MatSortModule } from '@angular/material/sort';
+import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
+import { Topic, Video, Sentiment, Comment, Transcript, NewsArticle } from '../../models/topic.model';
 
 @Component({
   selector: 'app-analysis',
   standalone: true,
-  imports: [
-    CommonModule,
-    ReactiveFormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatButtonModule,
-    MatProgressSpinnerModule,
-    MatTabsModule,
-    MatTableModule,
-    MatIconModule,
-    MatCardModule,
-    MatPaginatorModule,
-    MatSortModule
-  ],
+  imports: [CommonModule, RouterModule, FormsModule],
   templateUrl: './analysis.component.html',
-  styleUrl: './analysis.component.scss'
+  styleUrls: ['./analysis.component.scss']
 })
 export class AnalysisComponent implements OnInit {
-  topicControl = new FormControl('');
-  isLoading = false;
-  statusMessage = '';
-  showResults = false; // Controls whether to show tabs
-  currentTopicId: number | null = null;
-  currentTopicName = '';
+  topicId!: number;
+  topic: Topic | null = null;
+  videos: Video[] = [];
+  articles: NewsArticle[] = [];
+  loading = true;
   
-  // Analytics data for current topic
-  videoData: any[] = [];
-  recentNewsData: any[] = [];
-  olderNewsData: any[] = [];
+  // Tab management
+  activeTab: 'videos' | 'news' | 'ai' = 'videos';
   
-  // Loading states for each tab
-  videoLoading = false;
-  recentNewsLoading = false;
-  olderNewsLoading = false;
+  // AI Summary data
+  aiSummary: any = null;
   
-  // Table columns
-  videoColumns: string[] = ['title', 'publication_date', 'channel_name', 'view_count', 'url'];
-  recentNewsColumns: string[] = ['headline', 'publication_date', 'source_name', 'url'];
-  olderNewsColumns: string[] = ['headline', 'publication_date', 'source_name', 'url'];
+  selectedVideo: Video | null = null;
+  showVideoModal = false;
+  videoSentiments: Sentiment[] = [];
+  videoComments: Comment[] = [];
+  videoTranscript: Transcript | null = null;
+  
+  searchTerm = '';
+  sortBy = 'impact_score';
+  sortDirection = 'desc';
 
   constructor(
-    private apiService: ApiService
+    private route: ActivatedRoute,
+    private apiService: ApiService,
+    private router: Router
   ) {}
 
-  ngOnInit(): void {
-    // Component starts with only search bar visible
-    // No data loading until user searches
+  ngOnInit() {
+    this.route.params.subscribe(params => {
+      this.topicId = +params['id'];
+      this.loadData();
+    });
   }
 
-  startAnalysis() {
-    const topicValue = this.topicControl.value;
-    if (!topicValue) {
-      return; // Don't run if the input is empty
+  loadData() {
+    this.loading = true;
+    
+    this.apiService.getTopic(this.topicId).subscribe({
+      next: (topic) => {
+        this.topic = topic;
+        this.loadVideos();
+        this.loadArticles();
+      },
+      error: (err) => {
+        console.error('Error loading topic:', err);
+        this.loading = false;
+      }
+    });
+  }
+
+  loadVideos() {
+    this.apiService.getVideosByTopic(this.topicId).subscribe({
+      next: (videos) => {
+        this.videos = videos;
+        this.loading = false;
+      },
+      error: (err) => console.error('Error loading videos:', err)
+    });
+  }
+
+  loadArticles() {
+    this.apiService.getArticlesByTopic(this.topicId).subscribe({
+      next: (articles) => {
+        this.articles = articles;
+      },
+      error: (err) => console.error('Error loading articles:', err)
+    });
+  }
+
+  get topVideo(): Video | null {
+    return this.videos.length > 0 
+      ? this.videos.reduce((max, v) => (v.impact_score || 0) > (max.impact_score || 0) ? v : max)
+      : null;
+  }
+
+  get filteredVideos(): Video[] {
+    let filtered = this.videos.filter(v => 
+      v.title.toLowerCase().includes(this.searchTerm.toLowerCase()) ||
+      v.channel_title.toLowerCase().includes(this.searchTerm.toLowerCase())
+    );
+    
+    return filtered.sort((a, b) => {
+      const aVal = (a as any)[this.sortBy] || 0;
+      const bVal = (b as any)[this.sortBy] || 0;
+      return this.sortDirection === 'desc' ? bVal - aVal : aVal - bVal;
+    });
+  }
+
+  get sentimentCounts() {
+    const counts = { positive: 0, negative: 0, neutral: 0, mixed: 0 };
+    this.videos.forEach(v => {
+      const sentiment = v.overall_sentiment?.toLowerCase();
+      if (sentiment && sentiment in counts) {
+        counts[sentiment as keyof typeof counts]++;
+      }
+    });
+    return counts;
+  }
+
+  openVideoModal(video: Video) {
+    this.selectedVideo = video;
+    this.showVideoModal = true;
+    
+    this.apiService.getSentimentsByVideo(video.id).subscribe({
+      next: (sentiments) => this.videoSentiments = sentiments,
+      error: (err) => console.error('Error loading sentiments:', err)
+    });
+    
+    this.apiService.getCommentsByVideo(video.id).subscribe({
+      next: (comments) => this.videoComments = comments,
+      error: (err) => console.error('Error loading comments:', err)
+    });
+    
+    this.apiService.getTranscriptByVideo(video.id).subscribe({
+      next: (transcript) => this.videoTranscript = transcript,
+      error: (err) => console.error('Error loading transcript:', err)
+    });
+  }
+
+  closeVideoModal() {
+    this.showVideoModal = false;
+    this.selectedVideo = null;
+    this.videoSentiments = [];
+    this.videoComments = [];
+    this.videoTranscript = null;
+  }
+
+  setSortBy(field: string) {
+    if (this.sortBy === field) {
+      this.sortDirection = this.sortDirection === 'desc' ? 'asc' : 'desc';
+    } else {
+      this.sortBy = field;
+      this.sortDirection = 'desc';
     }
-
-    this.isLoading = true;
-    this.showResults = false;
-    this.statusMessage = 'Starting analysis... This may take a minute.';
-
-    this.apiService.analyzeTopic(topicValue).subscribe({
-      next: (response) => {
-        this.isLoading = false;
-        this.currentTopicId = response.topic_id;
-        this.currentTopicName = topicValue;
-        this.statusMessage = `Success! Analysis for "${topicValue}" is complete.`;
-        this.showResults = true;
-        
-        // Load topic-specific data
-        this.loadTopicData();
-      },
-      error: (error) => {
-        this.isLoading = false;
-        this.statusMessage = 'An error occurred during analysis. Please check the console.';
-        console.error(error);
-      }
-    });
   }
 
-  onTabChange(event: any): void {
-    const tabIndex = event.index;
-    
-    switch(tabIndex) {
-      case 0: // Videos tab
-        this.loadTopicVideos();
-        break;
-      case 1: // Recent news tab
-        this.loadTopicNews();
-        break;
-      case 2: // Older news tab
-        this.loadTopicOlderNews();
-        break;
-      default:
-        break;
+  switchTab(tab: 'videos' | 'news' | 'ai') {
+    this.activeTab = tab;
+    if (tab === 'ai' && !this.aiSummary) {
+      this.loadAISummary();
     }
   }
 
-  loadTopicData(): void {
-    // Load all data for the current topic
-    this.loadTopicVideos();
-    this.loadTopicNews();
-    this.loadTopicOlderNews();
+  loadAISummary() {
+    this.apiService.getAISummary(this.topicId).subscribe({
+      next: (summary) => this.aiSummary = summary,
+      error: (err) => console.error('Error loading AI summary:', err)
+    });
   }
 
-  loadTopicVideos(): void {
-    if (!this.currentTopicId) return;
-    
-    this.videoLoading = true;
-    this.apiService.getTopicVideos(this.currentTopicId).subscribe({
-      next: (response) => {
-        this.videoData = response.videos || [];
-        this.videoLoading = false;
+  deleteTopic() {
+    if (!confirm(`Delete topic "${this.topic?.topic_name}"?`)) return;
+
+    // disable UI while deleting
+    (this as any).deletingTopic = true;
+    this.apiService.deleteTopic(this.topicId).subscribe({
+      next: () => {
+        (this as any).deletingTopic = false;
+        this.router.navigate(['/locker']);
       },
-      error: (error) => {
-        console.error('Error loading video data:', error);
-        this.videoLoading = false;
+      error: (err) => {
+        (this as any).deletingTopic = false;
+        console.error('Error deleting topic:', err);
       }
     });
   }
 
-  loadTopicNews(): void {
-    if (!this.currentTopicId) return;
-    
-    this.recentNewsLoading = true;
-    this.apiService.getTopicNews(this.currentTopicId).subscribe({
-      next: (response: any) => {
-        this.recentNewsData = response.newsapi || [];
-        this.recentNewsLoading = false;
-      },
-      error: (error: any) => {
-        console.error('Error loading news data:', error);
-        this.recentNewsLoading = false;
-      }
-    });
+  // UI helpers for expandable justifications
+  expandedArticles: Set<number> = new Set();
+  expandedComments: Set<number> = new Set();
+  expandedSentiments: Set<number> = new Set();
+
+  toggleArticleExpand(id: number, event?: Event) {
+    if (event) event.stopPropagation();
+    if (this.expandedArticles.has(id)) this.expandedArticles.delete(id);
+    else this.expandedArticles.add(id);
   }
 
-  loadTopicOlderNews(): void {
-    if (!this.currentTopicId) return;
-    
-    this.olderNewsLoading = true;
-    this.apiService.getTopicOlderNews(this.currentTopicId).subscribe({
-      next: (response: any) => {
-        this.olderNewsData = response.guardian || [];
-        this.olderNewsLoading = false;
-      },
-      error: (error: any) => {
-        console.error('Error loading older news data:', error);
-        this.olderNewsLoading = false;
-      }
-    });
+  isArticleExpanded(id: number) {
+    return this.expandedArticles.has(id);
   }
 
-  openLink(url: string): void {
-    if (url) {
-      window.open(url, '_blank');
+  toggleCommentExpand(id: number, event?: Event) {
+    if (event) event.stopPropagation();
+    if (this.expandedComments.has(id)) this.expandedComments.delete(id);
+    else this.expandedComments.add(id);
+  }
+
+  isCommentExpanded(id: number) {
+    return this.expandedComments.has(id);
+  }
+
+  toggleSentimentExpand(id: number, event?: Event) {
+    if (event) event.stopPropagation();
+    if (this.expandedSentiments.has(id)) this.expandedSentiments.delete(id);
+    else this.expandedSentiments.add(id);
+  }
+
+  isSentimentExpanded(id: number) {
+    return this.expandedSentiments.has(id);
+  }
+
+  getSentimentClass(sentiment?: string): string {
+    return `sentiment-${sentiment?.toLowerCase() || 'neutral'}`;
+  }
+
+  formatNumber(num?: number): string {
+    if (!num) return '0';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toString();
+  }
+
+  formatDate(dateString: string): string {
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) return 'Today';
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays} days ago`;
+      if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+      if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+      return `${Math.floor(diffDays / 365)} years ago`;
+    } catch {
+      return '';
     }
   }
 }

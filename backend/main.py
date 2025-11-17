@@ -1,595 +1,431 @@
-from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, desc
-from textblob import TextBlob
+from sqlalchemy.orm import Session
+from dotenv import load_dotenv
+import os
+from typing import List
+from .database import engine, Base, get_db
+from . import models
+from . import schemas
+from . import crud
+from . import pipeline
 
-# Handle imports for both package and direct execution
-try:
-    # When running as a package (uvicorn backend.main:app)
-    from . import crud, models, schemas, pipeline, database
-except ImportError:
-    # When running directly (python main.py)
-    import crud, models, schemas, pipeline, database
+load_dotenv()
 
-import statistics
-from datetime import datetime
-from typing import Dict, List
-from langdetect import detect, DetectorFactory
-import re
-import pytz
+# Create all database tables
+Base.metadata.create_all(bind=engine)
 
-# Try to import ml_pipeline, but don't fail if it's not available yet
-try:
-    from ml_pipeline import inference
-    ML_PIPELINE_AVAILABLE = True
-except ImportError:
-    ML_PIPELINE_AVAILABLE = False
-    print("Warning: ml_pipeline not available. Inference endpoint will return mock data.")
+app = FastAPI(
+    title="ExplainNet API",
+    description="Comprehensive topic analysis platform",
+    version="1.0.0"
+)
 
-models.Base.metadata.create_all(bind=database.engine)
-app = FastAPI()
+# Configure CORS origins via environment variable for flexibility in dev/prod
+allow_origins_env = os.getenv("ALLOW_ORIGINS")
+if allow_origins_env:
+    # Expect comma-separated list
+    allow_origins = [o.strip() for o in allow_origins_env.split(',') if o.strip()]
+else:
+    # Default: typical Angular dev server origins
+    allow_origins = ["http://localhost:4200", "http://127.0.0.1:4200"]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200"],
-    allow_credentials=True, 
-    allow_methods=["*"], 
+    allow_origins=allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-def get_db():
-    db = database.SessionLocal()
-    try: 
-        yield db
-    finally: 
-        db.close()
+@app.get("/")
+async def root():
+    return {"message": "ExplainNet API", "status": "running", "version": "1.0.0"}
 
-# Timezone utility functions
-def get_available_timezones():
-    """Get list of common timezones"""
-    common_timezones = [
-        'UTC',
-        'US/Pacific', 'US/Mountain', 'US/Central', 'US/Eastern',
-        'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Rome', 'Europe/Madrid',
-        'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Singapore',
-        'Australia/Sydney', 'Australia/Melbourne',
-        'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-        'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo', 'America/Mexico_City',
-        'Africa/Cairo', 'Africa/Johannesburg',
-        'Pacific/Auckland'
-    ]
-    
-    timezone_list = []
-    for tz_name in common_timezones:
-        try:
-            tz = pytz.timezone(tz_name)
-            # Get current UTC time
-            utc_now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-            # Convert to this timezone
-            local_time = utc_now.astimezone(tz)
-            offset = local_time.strftime('%z')
-            
-            timezone_list.append({
-                'name': tz_name,
-                'display_name': f"{tz_name} (UTC{offset[:3]}:{offset[3:]})",
-                'offset': offset
-            })
-        except:
-            continue
-    
-    return timezone_list
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
-def convert_datetime_to_timezone(dt_str, target_timezone):
-    """Convert datetime string to target timezone"""
-    if not dt_str:
-        return None
-    
-    try:
-        # Parse the datetime (assuming it's stored as UTC)
-        if isinstance(dt_str, str):
-            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
-        else:
-            dt = dt_str
-        
-        # Make it timezone aware as UTC if it's naive
-        if dt.tzinfo is None:
-            dt = pytz.UTC.localize(dt)
-        
-        # Convert to target timezone
-        target_tz = pytz.timezone(target_timezone)
-        converted_dt = dt.astimezone(target_tz)
-        
-        return converted_dt.strftime('%Y-%m-%d %H:%M:%S %Z')
-    except Exception as e:
-        print(f"Error converting datetime: {e}")
-        return dt_str
 
-# Helper functions for analytics
-def calculate_channel_impact_score(db: Session, source_id: int, topic_id: int = None):
-    """Calculate impact score for a YouTube channel"""
-    query = db.query(models.Video).filter(models.Video.source_id == source_id)
-    if topic_id:
-        query = query.filter(models.Video.topic_id == topic_id)
+# TOPIC ENDPOINTS
+@app.post("/api/topics", response_model=schemas.TopicResponse)
+async def create_topic(
+    topic: schemas.TopicCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Create a new topic and start analysis in background"""
     
-    videos = query.all()
-    if not videos:
-        return 0
+    # Create topic
+    db_topic = crud.create_topic(db, topic)
     
-    # Calculate metrics
-    total_views = sum(int(v.view_count or 0) for v in videos)
-    avg_views = total_views / len(videos) if videos else 0
-    total_engagement = sum(int(v.like_count or 0) + int(v.comment_count or 0) for v in videos)
+    # Start analysis in background
+    background_tasks.add_task(pipeline.analyze_topic, db, db_topic.id, topic.topic_name)
     
-    # Normalize scores (simple approach - can be refined)
-    view_score = min(50, avg_views / 10000)  # Max 50 points for views
-    engagement_score = min(30, total_engagement / 1000)  # Max 30 points for engagement
-    frequency_score = min(20, len(videos) * 2)  # Max 20 points for frequency
-    
-    return round(view_score + engagement_score + frequency_score, 2)
+    return db_topic
 
-def analyze_comment_sentiment(comments):
-    """Analyze sentiment of comments with language detection"""
-    if not comments:
-        return {
-            "positive": 0, "neutral": 0, "negative": 0, 
-            "overall_score": 50, "total_comments": 0,
-            "english_comments": 0, "non_english_comments": 0,
-            "language_breakdown": {}
-        }
-    
-    sentiments = []
-    english_count = 0
-    non_english_count = 0
-    language_counts = {}
-    
-    for comment in comments:
-        if not comment.comment_text or len(comment.comment_text.strip()) < 3:
-            continue
-            
-        try:
-            # Clean text for better language detection
-            cleaned_text = re.sub(r'[^\w\s]', '', comment.comment_text)
-            
-            # Detect language
-            detected_lang = detect(cleaned_text)
-            language_counts[detected_lang] = language_counts.get(detected_lang, 0) + 1
-            
-            if detected_lang == 'en':
-                # Analyze English comments with TextBlob
-                english_count += 1
-                blob = TextBlob(comment.comment_text)
-                sentiments.append(blob.sentiment.polarity)
-            else:
-                # For non-English, mark as analyzed but don't include in sentiment
-                non_english_count += 1
-                # Could add multilingual sentiment analysis here in future
-                
-        except Exception as e:
-            # If language detection fails, try TextBlob anyway
-            try:
-                blob = TextBlob(comment.comment_text)
-                sentiments.append(blob.sentiment.polarity)
-                english_count += 1
-            except:
-                non_english_count += 1
-                continue
-    
-    if not sentiments:
-        return {
-            "positive": 0, "neutral": 0, "negative": 0,
-            "overall_score": 50, "total_comments": len(comments),
-            "english_comments": english_count, "non_english_comments": non_english_count,
-            "language_breakdown": language_counts,
-            "note": "No English comments found for sentiment analysis"
-        }
-    
-    # Categorize English comments only
-    positive = len([s for s in sentiments if s > 0.1])
-    negative = len([s for s in sentiments if s < -0.1])
-    neutral = len(sentiments) - positive - negative
-    
-    overall_score = (sum(sentiments) / len(sentiments)) * 50 + 50
-    
-    return {
-        "positive": positive,
-        "negative": negative, 
-        "neutral": neutral,
-        "overall_score": round(max(0, min(100, overall_score)), 2),
-        "total_comments": len(comments),
-        "english_comments": english_count,
-        "non_english_comments": non_english_count,
-        "language_breakdown": language_counts,
-        "analyzed_comments": len(sentiments)
-    }
 
-# Existing endpoints
-@app.get("/topics/")
-def read_topics(timezone: str = "UTC", db: Session = Depends(get_db)):
-    """Get topics with dates converted to specified timezone"""
-    topics = crud.get_topics_with_stats(db)
-    
-    # Convert search_date to the specified timezone
-    for topic in topics:
-        if topic.get('search_date'):
-            topic['search_date'] = convert_datetime_to_timezone(topic['search_date'], timezone)
-    
+@app.get("/api/topics", response_model=List[schemas.TopicResponse])
+async def get_topics(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """Get all topics"""
+    topics = crud.get_topics(db, skip=skip, limit=limit)
     return topics
 
-@app.get("/topics/{topic_id}")
-def get_topic_by_id(topic_id: int, db: Session = Depends(get_db)):
-    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
+
+@app.get("/api/topics/{topic_id}", response_model=schemas.TopicResponse)
+async def get_topic(topic_id: int, db: Session = Depends(get_db)):
+    """Get a specific topic"""
+    topic = crud.get_topic(db, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return topic
+
+
+@app.delete("/api/topics/{topic_id}")
+async def delete_topic(topic_id: int, db: Session = Depends(get_db)):
+    """Delete a topic"""
+    success = crud.delete_topic(db, topic_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return {"message": "Topic deleted successfully"}
+
+
+# VIDEO ENDPOINTS
+@app.get("/api/topics/{topic_id}/videos", response_model=List[schemas.VideoResponse])
+async def get_topic_videos(topic_id: int, db: Session = Depends(get_db)):
+    """Get all videos for a topic"""
+    videos = crud.get_videos_by_topic(db, topic_id)
+    return videos
+
+
+@app.get("/api/videos/{video_id}", response_model=schemas.VideoResponse)
+async def get_video(video_id: int, db: Session = Depends(get_db)):
+    """Get a specific video with all details"""
+    video = crud.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
+
+@app.get("/api/videos/{video_id}/sentiments", response_model=List[schemas.SentimentResponse])
+async def get_video_sentiments(video_id: int, db: Session = Depends(get_db)):
+    """Get sentiment analyses for a video"""
+    sentiments = crud.get_sentiments_by_video(db, video_id)
+    return sentiments
+
+
+@app.get("/api/videos/{video_id}/comments", response_model=List[schemas.CommentResponse])
+async def get_video_comments(video_id: int, limit: int = 100, db: Session = Depends(get_db)):
+    """Get comments for a video"""
+    comments = crud.get_comments_by_video(db, video_id, limit=limit)
+    return comments
+
+
+@app.get("/api/videos/{video_id}/transcript", response_model=schemas.TranscriptResponse)
+async def get_video_transcript(video_id: int, db: Session = Depends(get_db)):
+    """Get transcript for a video"""
+    video = crud.get_video(db, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not video.transcript:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    return video.transcript
+
+
+# ARTICLE ENDPOINTS
+@app.get("/api/topics/{topic_id}/articles", response_model=List[schemas.NewsArticleResponse])
+async def get_topic_articles(topic_id: int, db: Session = Depends(get_db)):
+    """Get all articles for a topic"""
+    articles = crud.get_articles_by_topic(db, topic_id)
+    return articles
+
+
+# ANALYSIS TAB ENDPOINTS
+@app.get("/api/topics/{topic_id}/videos-analysis")
+async def get_videos_analysis(topic_id: int, db: Session = Depends(get_db)):
+    """Get comprehensive video analysis for Videos tab"""
+    videos = crud.get_videos_by_topic(db, topic_id)
+    
+    result = {
+        "total_videos": len(videos),
+        "videos": []
+    }
+    
+    for video in videos:
+        video_data = {
+            "id": video.id,
+            "video_id": video.video_id,
+            "title": video.title,
+            "channel_title": video.channel_name,
+            "published_at": video.published_at,
+            "thumbnail_url": video.thumbnail_url,
+            "view_count": video.view_count,
+            "like_count": video.like_count,
+            "comment_count": video.comment_count,
+            "duration": video.duration,
+            "impact_score": video.impact_score,
+            "overall_sentiment": video.overall_sentiment,
+            "transcript": None,
+            "sentiments": [],
+            "comments": []
+        }
+        
+        # Add transcript if available
+        if video.transcript:
+            video_data["transcript"] = {
+                "text": video.transcript.text,
+                "word_count": video.transcript.word_count,
+                "processing_time": video.transcript.processing_time
+            }
+        
+        # Add sentiments
+        if video.sentiments:
+            video_data["sentiments"] = [
+                {
+                    "id": s.id,
+                    "model_name": s.model_name,
+                    "sentiment": s.sentiment,
+                    "positive_score": s.positive_score,
+                    "negative_score": s.negative_score,
+                    "neutral_score": s.neutral_score,
+                    "confidence": s.confidence,
+                    "hf_justification": getattr(s, 'hf_justification', None),
+                    "gemini_justification": getattr(s, 'gemini_justification', None),
+                    "gemini_sarcasm_score": getattr(s, 'gemini_sarcasm_score', None),
+                    "created_at": s.created_at.isoformat() if hasattr(s, 'created_at') and s.created_at is not None else None
+                }
+                for s in video.sentiments
+            ]
+        
+        # Add comments with sentiments
+        if video.comments:
+            video_data["comments"] = [
+                {
+                    "id": c.id,
+                    "author": c.author,
+                    "text": c.text,
+                    "like_count": c.like_count,
+                    "published_at": c.published_at,
+                    "hf_sentiment": c.hf_sentiment,
+                    "hf_score": c.hf_score,
+                    "gemini_sentiment": c.gemini_sentiment,
+                    "gemini_score": c.gemini_score
+                }
+                for c in video.comments[:20]  # Limit to first 20 comments
+            ]
+        
+        result["videos"].append(video_data)
+    
+    return result
+
+
+@app.get("/api/topics/{topic_id}/news-analysis")
+async def get_news_analysis(topic_id: int, db: Session = Depends(get_db)):
+    """Get comprehensive news analysis for News tab"""
+    articles = crud.get_articles_by_topic(db, topic_id)
+    
+    # Group by source
+    sources = {}
+    # Include 'unknown' for articles without an overall_sentiment
+    sentiment_distribution = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0, "unknown": 0}
+    
+    for article in articles:
+        # Count by source
+        source = article.source or "Unknown"
+        if source not in sources:
+            sources[source] = 0
+        sources[source] += 1
+        
+        # Count sentiments: treat missing overall_sentiment as 'unknown'
+        sentiment = article.overall_sentiment.lower() if article.overall_sentiment else "unknown"
+        if sentiment in sentiment_distribution:
+            sentiment_distribution[sentiment] += 1
+    
+    result = {
+        "total_articles": len(articles),
+        "unique_sources": len(sources),
+        "sources": sources,
+        "sentiment_distribution": sentiment_distribution,
+        "articles": [
+            {
+                "id": a.id,
+                "title": a.title,
+                "source": a.source,
+                "author": a.author,
+                "published_at": a.published_at,
+                "url": a.url,
+                "description": a.description,
+                "overall_sentiment": a.overall_sentiment,
+                "positive_score": a.positive_score,
+                "negative_score": a.negative_score,
+                "neutral_score": a.neutral_score,
+                "entities": a.entities,
+                "hf_justification": getattr(a, 'hf_justification', None),
+                "gemini_justification": getattr(a, 'gemini_justification', None),
+                "gemini_sarcasm_score": getattr(a, 'gemini_sarcasm_score', None),
+                "hf_sentiment": a.hf_sentiment,
+                "gemini_sentiment": a.gemini_sentiment
+            }
+            for a in articles
+        ]
+    }
+    
+    return result
+
+
+@app.get("/api/topics/{topic_id}/ai-summary")
+async def get_ai_summary(topic_id: int, db: Session = Depends(get_db)):
+    """Get AI-generated summary comparing videos vs news for AI Analysis tab"""
+    topic = crud.get_topic(db, topic_id)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
     
-    # Get stats for this topic
-    article_count = db.query(models.Article).filter(models.Article.topic_id == topic_id).count()
-    video_count = db.query(models.Video).filter(models.Video.topic_id == topic_id).count()
+    videos = crud.get_videos_by_topic(db, topic_id)
+    articles = crud.get_articles_by_topic(db, topic_id)
     
-    return {
-        "topic_id": topic.topic_id,
+    # Calculate video sentiment distribution
+    video_sentiments = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0, "unknown": 0}
+    for video in videos:
+        sentiment = video.overall_sentiment.lower() if video.overall_sentiment else "unknown"
+        if sentiment in video_sentiments:
+            video_sentiments[sentiment] += 1
+    
+    # Calculate news sentiment distribution
+    news_sentiments = {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0, "unknown": 0}
+    for article in articles:
+        sentiment = article.overall_sentiment.lower() if article.overall_sentiment else "unknown"
+        if sentiment in news_sentiments:
+            news_sentiments[sentiment] += 1
+    
+    # Calculate average impact score
+    impact_scores = [v.impact_score for v in videos if v.impact_score]
+    avg_impact = sum(impact_scores) / len(impact_scores) if impact_scores else 0
+    
+    # Extract common entities from news
+    all_entities = []
+    for article in articles:
+        if article.entities:
+            import json
+            try:
+                entities = json.loads(article.entities) if isinstance(article.entities, str) else article.entities
+                if isinstance(entities, list):
+                    all_entities.extend(entities)
+            except:
+                pass
+    
+    # Count entity frequency
+    entity_counts = {}
+    for entity in all_entities:
+        entity_text = entity.get("text", "") if isinstance(entity, dict) else str(entity)
+        if entity_text:
+            entity_counts[entity_text] = entity_counts.get(entity_text, 0) + 1
+    
+    # Get top 10 entities
+    top_entities = sorted(entity_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    
+    result = {
         "topic_name": topic.topic_name,
-        "article_count": article_count,
-        "video_count": video_count
+        "overall_impact_score": topic.overall_impact_score or avg_impact,
+        "total_videos": len(videos),
+        "total_articles": len(articles),
+        "video_sentiment_distribution": video_sentiments,
+        "news_sentiment_distribution": news_sentiments,
+        "sentiment_agreement": {
+            "description": "Comparing dominant sentiment between videos and news",
+            "video_dominant": max(video_sentiments, key=video_sentiments.get) if video_sentiments else "unknown",
+            "news_dominant": max(news_sentiments, key=news_sentiments.get) if news_sentiments else "unknown",
+            "aligned": max(video_sentiments, key=video_sentiments.get) == max(news_sentiments, key=news_sentiments.get)
+        },
+        "top_entities": [{"text": text, "count": count} for text, count in top_entities],
+        "key_insights": [
+            f"Analyzed {len(videos)} videos and {len(articles)} news articles",
+            f"Average video impact score: {avg_impact:.1f}/10",
+            f"Videos are predominantly {max(video_sentiments, key=video_sentiments.get).upper()}" if video_sentiments else "",
+            f"News coverage is predominantly {max(news_sentiments, key=news_sentiments.get).upper()}" if news_sentiments else "",
+            f"Sentiment alignment: {'ALIGNED' if max(video_sentiments, key=video_sentiments.get) == max(news_sentiments, key=news_sentiments.get) else 'DIVERGENT'}" if video_sentiments and news_sentiments else ""
+        ]
     }
+    
+    return result
 
-# TIMEZONE ENDPOINTS
-@app.get("/timezones/")
-def get_timezones():
-    """Get list of available timezones"""
-    return {"timezones": get_available_timezones()}
-    
-@app.get("/topics/{topic_id}/inference/", response_model=schemas.InferenceResponse)
-def get_inference(topic_id: int, db: Session = Depends(get_db)):
-    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
-    if not topic: 
-        raise HTTPException(status_code=404, detail="Topic not found")
-    
-    if ML_PIPELINE_AVAILABLE:
-        score = inference.predict_virality(topic_id=topic_id)
-        if score is None: 
-            raise HTTPException(status_code=404, detail="Could not generate graph.")
-    else:
-        # Return mock data if ML pipeline isn't available
-        score = 0.75  # Mock virality score
-    
-    return {"topic_id": topic_id, "topic_name": topic.topic_name, "predicted_virality_score": score}
 
-@app.get("/topics/{topic_id}/news-reliability/")
-def get_news_reliability(topic_id: int, db: Session = Depends(get_db)):
-    data = crud.get_news_reliability_for_topic(db, topic_id=topic_id)
-    if not data: 
-        raise HTTPException(status_code=404, detail="No recent news found.")
-    return data
-
-# NEW ENHANCED ANALYTICS ENDPOINTS
-@app.get("/topics/{topic_id}/channel-analytics/")
-def get_channel_analytics(topic_id: int, db: Session = Depends(get_db)):
-    """Get comprehensive YouTube channel analytics for a topic"""
-    channels = db.query(models.Source).filter(
-        models.Source.platform == "YouTube"
-    ).join(models.Video).filter(models.Video.topic_id == topic_id).distinct().all()
-    
-    channel_data = []
-    for channel in channels:
-        videos = db.query(models.Video).filter(
-            models.Video.source_id == channel.source_id,
-            models.Video.topic_id == topic_id
-        ).all()
-        
-        if videos:
-            impact_score = calculate_channel_impact_score(db, channel.source_id, topic_id)
-            total_views = sum(int(v.view_count or 0) for v in videos)
-            total_videos = len(videos)
-            avg_views = total_views / total_videos if total_videos > 0 else 0
-            
-            # Get all comments for sentiment analysis
-            all_comments = []
-            for video in videos:
-                comments = db.query(models.Comment).filter(models.Comment.video_id == video.video_id).all()
-                all_comments.extend(comments)
-            
-            sentiment = analyze_comment_sentiment(all_comments)
-            
-            channel_data.append({
-                "source_id": channel.source_id,
-                "channel_name": channel.source_name,
-                "impact_score": impact_score,
-                "total_videos": total_videos,
-                "total_views": total_views,
-                "avg_views_per_video": round(avg_views, 2),
-                "sentiment_analysis": sentiment
-            })
-    
-    # Sort by impact score
-    channel_data.sort(key=lambda x: x["impact_score"], reverse=True)
-    return channel_data
-
-@app.get("/topics/{topic_id}/video-timeline/")
-def get_video_timeline(topic_id: int, db: Session = Depends(get_db)):
-    """Get video timeline data for views vs publication date chart"""
-    videos = db.query(models.Video).filter(
-        models.Video.topic_id == topic_id
-    ).order_by(models.Video.publication_date).all()
-    
-    timeline_data = []
-    for video in videos:
-        if video.publication_date and video.view_count:
-            source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
-            timeline_data.append({
-                "video_id": video.video_id,
-                "title": video.title,
-                "publication_date": video.publication_date.isoformat(),
-                "view_count": int(video.view_count or 0),
-                "channel_name": source.source_name if source else "Unknown",
-                "url": video.url
-            })
-    
-    return timeline_data
-
-@app.get("/topics/{topic_id}/news-data/")
-def get_news_data(topic_id: int, db: Session = Depends(get_db)):
-    """Get all news data (both Guardian and NewsAPI) for a topic"""
-    # Guardian articles
-    guardian_articles = db.query(models.Article).filter(
-        models.Article.topic_id == topic_id,
-        models.Article.data_source_api == "Guardian"
-    ).order_by(desc(models.Article.publication_date)).all()
-    
-    # NewsAPI articles
-    newsapi_articles = db.query(models.Article).filter(
-        models.Article.topic_id == topic_id,
-        models.Article.data_source_api == "NewsAPI.org"
-    ).order_by(desc(models.Article.publication_date)).all()
-    
-    guardian_data = [{
-        "article_id": article.article_id,
-        "headline": article.headline,
-        "url": article.url,
-        "author": article.author,
-        "publication_date": article.publication_date.isoformat() if article.publication_date else None,
-        "source_name": "The Guardian"
-    } for article in guardian_articles]
-    
-    newsapi_data = []
-    for article in newsapi_articles:
-        source = db.query(models.Source).filter(models.Source.source_id == article.source_id).first()
-        newsapi_data.append({
-            "article_id": article.article_id,
-            "headline": article.headline,
-            "url": article.url,
-            "author": article.author,
-            "publication_date": article.publication_date.isoformat() if article.publication_date else None,
-            "source_name": source.source_name if source else "Unknown"
-        })
-    
-    return {
-        "guardian": guardian_data,
-        "newsapi": newsapi_data,
-        "guardian_count": len(guardian_data),
-        "newsapi_count": len(newsapi_data)
+# DATABASE MANAGEMENT ENDPOINTS
+@app.get("/api/admin/database-stats")
+async def get_database_stats(db: Session = Depends(get_db)):
+    """Get database statistics"""
+    stats = {
+        "total_topics": db.query(models.Topic).count(),
+        "total_videos": db.query(models.Video).count(),
+        "total_articles": db.query(models.NewsArticle).count(),
+        "total_sentiments": db.query(models.Sentiment).count(),
+        "total_comments": db.query(models.Comment).count(),
+        "total_transcripts": db.query(models.Transcript).count(),
+        "topics": []
     }
-
-@app.get("/topics/{topic_id}/youtube-data/")
-def get_youtube_data(topic_id: int, db: Session = Depends(get_db)):
-    """Get YouTube video data for a topic"""
-    videos = db.query(models.Video).filter(
-        models.Video.topic_id == topic_id
-    ).order_by(desc(models.Video.publication_date)).all()
     
-    video_data = []
-    for video in videos:
-        source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
-        video_data.append({
-            "video_id": video.video_id,
-            "title": video.title,
-            "url": video.url,
-            "publication_date": video.publication_date.isoformat() if video.publication_date else None,
-            "channel_name": source.source_name if source else "Unknown",
-            "view_count": int(video.view_count or 0),
-            "like_count": int(video.like_count or 0),
-            "comment_count": int(video.comment_count or 0)
-        })
-    
-    return {
-        "videos": video_data,
-        "total_videos": len(video_data)
-    }
-
-# Enhanced reliability endpoint
-@app.get("/topics/{topic_id}/enhanced-news-reliability/")
-def get_enhanced_news_reliability(topic_id: int, db: Session = Depends(get_db)):
-    """Enhanced news reliability with more detailed metrics"""
-    base_data = crud.get_news_reliability_for_topic(db, topic_id=topic_id)
-    
-    # Add more detailed metrics
-    enhanced_data = []
-    for source_info in base_data:
-        source_id = source_info["source_id"]
-        
-        # Get all articles from this source
-        articles = db.query(models.Article).filter(
-            models.Article.source_id == source_id,
-            models.Article.topic_id == topic_id
-        ).all()
-        
-        enhanced_info = source_info.copy()
-        enhanced_info.update({
-            "total_articles": len(articles),
-            "avg_article_length": statistics.mean([len(a.full_text or "") for a in articles]) if articles else 0,
-            "has_author_info": sum(1 for a in articles if a.author) / len(articles) * 100 if articles else 0
-        })
-        enhanced_data.append(enhanced_info)
-    
-    return enhanced_data
-
-# Existing endpoints continue...
-@app.post("/topics/{topic_id}/fetch-historical-news/")
-def fetch_historical_news(topic_id: int, db: Session = Depends(get_db)):
-    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
-    if not topic: 
-        raise HTTPException(status_code=404, detail="Topic not found")
-    
-    articles = pipeline.collect_guardian_data(topic.topic_name)
-    if articles:
-        source = crud.get_or_create_source(db, source_name="The Guardian", platform="News")
-        for article in articles:
-            if not db.query(models.Article).filter(models.Article.url == article['url']).first():
-                crud.create_article(db, article=article, topic_id=topic.topic_id, source_id=source.source_id)
-    
-    return {"status": "success", "message": f"Fetched {len(articles)} historical articles."}
-
-@app.post("/topics/{topic_id}/fetch-recent-news/")
-def fetch_recent_news(topic_id: int, db: Session = Depends(get_db)):
-    topic = db.query(models.Topic).filter(models.Topic.topic_id == topic_id).first()
-    if not topic: 
-        raise HTTPException(status_code=404, detail="Topic not found")
-    
-    articles = pipeline.collect_newsapi_org_data(country='us')
-    if articles:
-        for article_data in articles:
-            if not db.query(models.Article).filter(models.Article.url == article_data['url']).first():
-                source_name = article_data.get('source_name') or "Unknown Source"
-                source = crud.get_or_create_source(db, source_name=source_name, platform="News")
-                crud.create_article(db, article=article_data, topic_id=topic.topic_id, source_id=source.source_id)
-    
-    return {"status": "success", "message": f"Fetched {len(articles)} recent articles."}
-
-@app.post("/analyze/")
-def analyze_topic(req: schemas.TopicCreate, db: Session = Depends(get_db)):
-    topic = crud.get_or_create_topic(db, topic_name=req.topic_name)
-    
-    print("--- Starting Data Collection ---")
-    
-    # Collect YouTube data
-    print("--- Collecting YouTube data ---")
-    youtube_videos = pipeline.collect_youtube_data(req.topic_name)
-    print("--- YouTube Collection Finished ---")
-
-    if youtube_videos:
-        for video_data in youtube_videos:
-            source = crud.get_or_create_source(db, source_name=video_data['channel_name'], platform="YouTube")
-            crud.create_video_with_comments(db, video=video_data, topic_id=topic.topic_id, source_id=source.source_id)
-        print(f"Saved {len(youtube_videos)} videos and their comments to DB.")
-    
-    # Collect Guardian news data (older/historical articles)
-    print("--- Collecting Guardian news data ---")
-    guardian_articles = pipeline.collect_guardian_data(req.topic_name)
-    print("--- Guardian Collection Finished ---")
-    
-    if guardian_articles:
-        for article_data in guardian_articles:
-            source = crud.get_or_create_source(db, source_name=article_data['source_name'], platform="News")
-            crud.create_article(db, article=article_data, topic_id=topic.topic_id, source_id=source.source_id)
-        print(f"Saved {len(guardian_articles)} Guardian articles to DB.")
-    
-    # Collect NewsAPI.org data (recent headlines)
-    print("--- Collecting NewsAPI.org data ---")
-    newsapi_articles = pipeline.collect_newsapi_org_data(req.topic_name)
-    print("--- NewsAPI.org Collection Finished ---")
-    
-    if newsapi_articles:
-        for article_data in newsapi_articles:
-            source = crud.get_or_create_source(db, source_name=article_data['source_name'], platform="News")
-            crud.create_article(db, article=article_data, topic_id=topic.topic_id, source_id=source.source_id)
-        print(f"Saved {len(newsapi_articles)} NewsAPI.org articles to DB.")
-    
-    total_videos = len(youtube_videos) if youtube_videos else 0
-    total_guardian = len(guardian_articles) if guardian_articles else 0
-    total_newsapi = len(newsapi_articles) if newsapi_articles else 0
-    
-    return {
-        "status": "success", 
-        "topic_id": topic.topic_id, 
-        "message": f"Analysis complete. Collected {total_videos} videos, {total_guardian} Guardian articles, {total_newsapi} NewsAPI articles.",
-        "stats": {
-            "videos": total_videos,
-            "guardian_articles": total_guardian,
-            "newsapi_articles": total_newsapi
+    # Get detailed topic info
+    topics = db.query(models.Topic).all()
+    for topic in topics:
+        topic_info = {
+            "id": topic.id,
+            "name": topic.topic_name,
+            "status": topic.analysis_status,
+            "videos_count": db.query(models.Video).filter(models.Video.topic_id == topic.id).count(),
+            "articles_count": db.query(models.NewsArticle).filter(models.NewsArticle.topic_id == topic.id).count(),
+            "created_at": topic.created_at.isoformat() if topic.created_at else None
         }
-    }
+        stats["topics"].append(topic_info)
+    
+    return stats
 
-# ANALYTICS ENDPOINTS - Get all data across topics
-@app.get("/analytics/videos/")
-def get_all_videos(db: Session = Depends(get_db)):
-    """Get all videos across all topics for analytics"""
-    videos = db.query(models.Video).order_by(desc(models.Video.publication_date)).all()
-    
-    video_data = []
-    for i, video in enumerate(videos, 1):
-        source = db.query(models.Source).filter(models.Source.source_id == video.source_id).first()
-        topic = db.query(models.Topic).filter(models.Topic.topic_id == video.topic_id).first()
-        
-        video_data.append({
-            "sno": i,
-            "title": video.title,
-            "publish_date": video.publication_date.isoformat() if video.publication_date else None,
-            "url": video.url,
-            "source_name": source.source_name if source else "YouTube",
-            "topic_name": topic.topic_name if topic else "Unknown",
-            "view_count": int(video.view_count or 0),
-            "like_count": int(video.like_count or 0),
-            "comment_count": int(video.comment_count or 0)
-        })
-    
-    return {
-        "videos": video_data,
-        "total_count": len(video_data)
-    }
 
-@app.get("/analytics/recent-news/")
-def get_all_recent_news(db: Session = Depends(get_db)):
-    """Get all recent news (NewsAPI) across all topics for analytics"""
-    articles = db.query(models.Article).filter(
-        models.Article.data_source_api == "NewsAPI.org"
-    ).order_by(desc(models.Article.publication_date)).all()
-    
-    news_data = []
-    for i, article in enumerate(articles, 1):
-        source = db.query(models.Source).filter(models.Source.source_id == article.source_id).first()
-        topic = db.query(models.Topic).filter(models.Topic.topic_id == article.topic_id).first()
-        
-        news_data.append({
-            "sno": i,
-            "title": article.headline,
-            "publish_date": article.publication_date.isoformat() if article.publication_date else None,
-            "url": article.url,
-            "source_name": source.source_name if source else "Unknown",
-            "topic_name": topic.topic_name if topic else "Unknown",
-            "author": article.author
-        })
-    
-    return {
-        "articles": news_data,
-        "total_count": len(news_data)
-    }
+@app.delete("/api/admin/clear-database")
+async def clear_database(db: Session = Depends(get_db)):
+    """Clear entire database (delete all data)"""
+    try:
+        # Delete in correct order to avoid foreign key constraints
+        db.query(models.Comment).delete()
+        db.query(models.Sentiment).delete()
+        db.query(models.Transcript).delete()
+        db.query(models.Video).delete()
+        db.query(models.NewsArticle).delete()
+        db.query(models.Topic).delete()
+        db.commit()
+        return {"message": "Database cleared successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error clearing database: {str(e)}")
 
-@app.get("/analytics/older-news/")
-def get_all_older_news(db: Session = Depends(get_db)):
-    """Get all older news (Guardian) across all topics for analytics"""
-    articles = db.query(models.Article).filter(
-        models.Article.data_source_api == "Guardian"
-    ).order_by(desc(models.Article.publication_date)).all()
+
+@app.delete("/api/admin/clear-topic-data/{topic_id}")
+async def clear_topic_data(topic_id: int, db: Session = Depends(get_db)):
+    """Clear all data for a specific topic (videos, articles, sentiments, etc.)"""
+    topic = crud.get_topic(db, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
     
-    news_data = []
-    for i, article in enumerate(articles, 1):
-        topic = db.query(models.Topic).filter(models.Topic.topic_id == article.topic_id).first()
+    try:
+        # Get all videos for this topic
+        videos = crud.get_videos_by_topic(db, topic_id)
+        video_ids = [v.id for v in videos]
         
-        news_data.append({
-            "sno": i,
-            "title": article.headline,
-            "publish_date": article.publication_date.isoformat() if article.publication_date else None,
-            "url": article.url,
-            "source_name": "The Guardian",
-            "topic_name": topic.topic_name if topic else "Unknown",
-            "author": article.author
-        })
-    
-    return {
-        "articles": news_data,
-        "total_count": len(news_data)
-    }
+        # Delete related data
+        if video_ids:
+            db.query(models.Comment).filter(models.Comment.video_id.in_(video_ids)).delete(synchronize_session=False)
+            db.query(models.Sentiment).filter(models.Sentiment.video_id.in_(video_ids)).delete(synchronize_session=False)
+            db.query(models.Transcript).filter(models.Transcript.video_id.in_(video_ids)).delete(synchronize_session=False)
+        
+        # Delete videos and articles
+        db.query(models.Video).filter(models.Video.topic_id == topic_id).delete()
+        db.query(models.NewsArticle).filter(models.NewsArticle.topic_id == topic_id).delete()
+        
+        db.commit()
+        return {"message": f"All data cleared for topic '{topic.topic_name}'"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error clearing topic data: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

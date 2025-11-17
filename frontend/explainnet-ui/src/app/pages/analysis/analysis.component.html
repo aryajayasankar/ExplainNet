@@ -1,221 +1,482 @@
-<div class="analysis-container">
-  <mat-card class="search-card">
-    <mat-card-header>
-      <mat-card-title>Topic Analysis</mat-card-title>
-      <mat-card-subtitle>Enter a topic to analyze YouTube videos and news articles</mat-card-subtitle>
-    </mat-card-header>
+﻿<div class="analysis-container" *ngIf="!loading && topic">
+  <!-- Section A: Hero Header -->
+  <header class="hero-header">
+    <div class="breadcrumb">
+      <a routerLink="/locker">Locker</a> / {{ topic.topic_name }}
+    </div>
     
-    <mat-card-content>
-      <div class="search-section">
-        <mat-form-field appearance="outline" class="search-field">
-          <mat-label>Enter topic to analyze</mat-label>
-          <input matInput [formControl]="topicControl" placeholder="e.g., climate change, artificial intelligence">
-        </mat-form-field>
-        
-        <button mat-raised-button color="primary" 
-                (click)="startAnalysis()" 
-                [disabled]="isLoading || !topicControl.value"
-                class="analyze-btn">
-          <mat-icon *ngIf="isLoading">refresh</mat-icon>
-          <span *ngIf="isLoading">Analyzing...</span>
-          <span *ngIf="!isLoading">Start Analysis</span>
-        </button>
+    <h1 class="topic-title">{{ topic.topic_name }}</h1>
+    
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon"></div>
+        <div class="stat-value">{{ videos.length }}</div>
+        <div class="stat-label">Videos Analyzed</div>
       </div>
       
-      <div *ngIf="isLoading" class="loading-section">
-        <mat-progress-spinner mode="indeterminate" diameter="50"></mat-progress-spinner>
+      <div class="stat-card">
+        <div class="stat-icon"></div>
+        <div class="stat-value">{{ articles.length }}</div>
+        <div class="stat-label">News Articles</div>
       </div>
       
-      <div *ngIf="statusMessage" class="status-message" 
-           [ngClass]="{'success': statusMessage.includes('Success'), 'error': statusMessage.includes('error')}">
-        <mat-icon>{{ statusMessage.includes('Success') ? 'check_circle' : 'error' }}</mat-icon>
-        <span>{{ statusMessage }}</span>
+      <div class="stat-card">
+        <div class="stat-icon"></div>
+        <div class="stat-value">{{ topic.overall_impact_score ? topic.overall_impact_score.toFixed(1) : '0' }}</div>
+        <div class="stat-label">Avg Impact Score</div>
       </div>
-    </mat-card-content>
-  </mat-card>
+      
+      <div class="stat-card">
+        <div class="stat-icon"></div>
+        <div class="stat-value">{{ topic.last_analyzed_at | date:'MMM d' }}</div>
+        <div class="stat-label">Last Analyzed</div>
+      </div>
+    </div>
+    
+    <div class="action-buttons">
+      <button class="btn-action btn-delete" (click)="deleteTopic()">Delete Topic</button>
+    </div>
+  </header>
 
-  <!-- Results section - only shown after successful analysis -->
-  <div *ngIf="showResults" class="results-section">
-    <mat-card class="results-card">
-      <mat-card-header>
-        <mat-card-title>Analysis Results for "{{ currentTopicName }}"</mat-card-title>
-      </mat-card-header>
-      
-      <mat-card-content>
-        <mat-tab-group (selectedTabChange)="onTabChange($event)" class="data-tabs">
-          
-          <!-- Videos Tab -->
-          <mat-tab label="Videos">
-            <div class="tab-content">
-              <div *ngIf="videoLoading" class="loading-container">
-                <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
-                <p>Loading video data...</p>
-              </div>
-              
-              <div *ngIf="!videoLoading">
-                <div class="data-summary">
-                  <h3>YouTube Videos ({{ videoData.length }})</h3>
-                </div>
-                
-                <div class="table-container" *ngIf="videoData.length > 0">
-                  <table mat-table [dataSource]="videoData" class="data-table">
-                    
-                    <ng-container matColumnDef="title">
-                      <th mat-header-cell *matHeaderCellDef>Title</th>
-                      <td mat-cell *matCellDef="let video" class="title-cell">
-                        <a (click)="openLink(video.url)" class="video-link">{{ video.title }}</a>
-                      </td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="publication_date">
-                      <th mat-header-cell *matHeaderCellDef>Published</th>
-                      <td mat-cell *matCellDef="let video">{{ video.publication_date | date:'short' }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="channel_name">
-                      <th mat-header-cell *matHeaderCellDef>Channel</th>
-                      <td mat-cell *matCellDef="let video">{{ video.channel_name }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="view_count">
-                      <th mat-header-cell *matHeaderCellDef>Views</th>
-                      <td mat-cell *matCellDef="let video">{{ video.view_count | number }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="url">
-                      <th mat-header-cell *matHeaderCellDef>Action</th>
-                      <td mat-cell *matCellDef="let video">
-                        <button mat-icon-button (click)="openLink(video.url)" matTooltip="Open video">
-                          <mat-icon>open_in_new</mat-icon>
-                        </button>
-                      </td>
-                    </ng-container>
-                    
-                    <tr mat-header-row *matHeaderRowDef="videoColumns"></tr>
-                    <tr mat-row *matRowDef="let row; columns: videoColumns;" class="data-row"></tr>
-                  </table>
-                </div>
-                
-                <div *ngIf="videoData.length === 0" class="no-data">
-                  <mat-icon>video_library</mat-icon>
-                  <p>No video data found for this topic</p>
-                </div>
-              </div>
-            </div>
-          </mat-tab>
-          
-          <!-- Recent News Tab -->
-          <mat-tab label="Recent News">
-            <div class="tab-content">
-              <div *ngIf="recentNewsLoading" class="loading-container">
-                <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
-                <p>Loading recent news...</p>
-              </div>
-              
-              <div *ngIf="!recentNewsLoading">
-                <div class="data-summary">
-                  <h3>Recent News Articles ({{ recentNewsData.length }})</h3>
-                </div>
-                
-                <div class="table-container" *ngIf="recentNewsData.length > 0">
-                  <table mat-table [dataSource]="recentNewsData" class="data-table">
-                    
-                    <ng-container matColumnDef="headline">
-                      <th mat-header-cell *matHeaderCellDef>Headline</th>
-                      <td mat-cell *matCellDef="let article" class="title-cell">
-                        <a (click)="openLink(article.url)" class="news-link">{{ article.headline }}</a>
-                      </td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="publication_date">
-                      <th mat-header-cell *matHeaderCellDef>Published</th>
-                      <td mat-cell *matCellDef="let article">{{ article.publication_date | date:'short' }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="source_name">
-                      <th mat-header-cell *matHeaderCellDef>Source</th>
-                      <td mat-cell *matCellDef="let article">{{ article.source_name }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="url">
-                      <th mat-header-cell *matHeaderCellDef>Action</th>
-                      <td mat-cell *matCellDef="let article">
-                        <button mat-icon-button (click)="openLink(article.url)" matTooltip="Read article">
-                          <mat-icon>open_in_new</mat-icon>
-                        </button>
-                      </td>
-                    </ng-container>
-                    
-                    <tr mat-header-row *matHeaderRowDef="recentNewsColumns"></tr>
-                    <tr mat-row *matRowDef="let row; columns: recentNewsColumns;" class="data-row"></tr>
-                  </table>
-                </div>
-                
-                <div *ngIf="recentNewsData.length === 0" class="no-data">
-                  <mat-icon>article</mat-icon>
-                  <p>No recent news data found for this topic</p>
-                </div>
-              </div>
-            </div>
-          </mat-tab>
-          
-          <!-- Older News Tab -->
-          <mat-tab label="Older News">
-            <div class="tab-content">
-              <div *ngIf="olderNewsLoading" class="loading-container">
-                <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
-                <p>Loading older news...</p>
-              </div>
-              
-              <div *ngIf="!olderNewsLoading">
-                <div class="data-summary">
-                  <h3>Older News Articles ({{ olderNewsData.length }})</h3>
-                </div>
-                
-                <div class="table-container" *ngIf="olderNewsData.length > 0">
-                  <table mat-table [dataSource]="olderNewsData" class="data-table">
-                    
-                    <ng-container matColumnDef="headline">
-                      <th mat-header-cell *matHeaderCellDef>Headline</th>
-                      <td mat-cell *matCellDef="let article" class="title-cell">
-                        <a (click)="openLink(article.url)" class="news-link">{{ article.headline }}</a>
-                      </td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="publication_date">
-                      <th mat-header-cell *matHeaderCellDef>Published</th>
-                      <td mat-cell *matCellDef="let article">{{ article.publication_date | date:'short' }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="source_name">
-                      <th mat-header-cell *matHeaderCellDef>Source</th>
-                      <td mat-cell *matCellDef="let article">{{ article.source_name }}</td>
-                    </ng-container>
-                    
-                    <ng-container matColumnDef="url">
-                      <th mat-header-cell *matHeaderCellDef>Action</th>
-                      <td mat-cell *matCellDef="let article">
-                        <button mat-icon-button (click)="openLink(article.url)" matTooltip="Read article">
-                          <mat-icon>open_in_new</mat-icon>
-                        </button>
-                      </td>
-                    </ng-container>
-                    
-                    <tr mat-header-row *matHeaderRowDef="olderNewsColumns"></tr>
-                    <tr mat-row *matRowDef="let row; columns: olderNewsColumns;" class="data-row"></tr>
-                  </table>
-                </div>
-                
-                <div *ngIf="olderNewsData.length === 0" class="no-data">
-                  <mat-icon>history</mat-icon>
-                  <p>No older news data found for this topic</p>
-                </div>
-              </div>
-            </div>
-          </mat-tab>
-          
-        </mat-tab-group>
-      </mat-card-content>
-    </mat-card>
+  <!-- Tab Navigation -->
+  <div class="tab-navigation">
+    <button 
+      class="tab-btn" 
+      [class.active]="activeTab === 'videos'"
+      (click)="switchTab('videos')">
+      <span class="tab-icon">📹</span>
+      Videos
+    </button>
+    <button 
+      class="tab-btn" 
+      [class.active]="activeTab === 'news'"
+      (click)="switchTab('news')">
+      <span class="tab-icon">📰</span>
+      News
+    </button>
+    <button 
+      class="tab-btn" 
+      [class.active]="activeTab === 'ai'"
+      (click)="switchTab('ai')">
+      <span class="tab-icon">🤖</span>
+      AI Analysis
+    </button>
   </div>
+  
+  <!-- VIDEOS TAB CONTENT -->
+  <div *ngIf="activeTab === 'videos'">
+    <!-- Section B: Key Insights -->
+    <section class="key-insights">
+    <h2 class="section-title">Key Insights</h2>
+    
+    <div class="insights-grid">
+      <div class="insight-card">
+        <h3>Overall Sentiment</h3>
+        <div class="sentiment-large" [ngClass]="getSentimentClass(topic.overall_sentiment)">
+          {{ topic.overall_sentiment || 'Analyzing...' }}
+        </div>
+      </div>
+      
+      <div class="insight-card gradient" *ngIf="topVideo">
+        <h3>Top Impact Video</h3>
+        <img [src]="topVideo.thumbnail_url" alt="Thumbnail" class="video-thumb">
+        <p class="video-title">{{ topVideo.title }}</p>
+        <div class="impact-badge">Impact: {{ topVideo.impact_score?.toFixed(1) }}</div>
+      </div>
+      
+      <div class="insight-card">
+        <h3>Sentiment Distribution</h3>
+        <div class="sentiment-bars">
+          <div class="bar-item">
+            <span class="bar-label">Positive</span>
+            <div class="bar">
+              <div class="bar-fill positive" [style.width.%]="(sentimentCounts.positive / videos.length) * 100"></div>
+            </div>
+            <span class="bar-count">{{ sentimentCounts.positive }}</span>
+          </div>
+          <div class="bar-item">
+            <span class="bar-label">Negative</span>
+            <div class="bar">
+              <div class="bar-fill negative" [style.width.%]="(sentimentCounts.negative / videos.length) * 100"></div>
+            </div>
+            <span class="bar-count">{{ sentimentCounts.negative }}</span>
+          </div>
+          <div class="bar-item">
+            <span class="bar-label">Neutral</span>
+            <div class="bar">
+              <div class="bar-fill neutral" [style.width.%]="(sentimentCounts.neutral / videos.length) * 100"></div>
+            </div>
+            <span class="bar-count">{{ sentimentCounts.neutral }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  
+    <!-- Section D: Video Rankings Table -->
+    <section class="video-table-section">
+    <div class="table-header">
+      <h2 class="section-title">Video Rankings</h2>
+      <input type="text" 
+             [(ngModel)]="searchTerm" 
+             placeholder="Search videos..." 
+             class="search-input">
+    </div>
+    
+    <div class="table-container">
+      <table class="video-table">
+        <thead>
+          <tr>
+            <th>Video</th>
+            <th (click)="setSortBy('impact_score')" class="sortable">
+              Impact Score {{ sortBy === 'impact_score' ? (sortDirection === 'desc' ? '' : '') : '' }}
+            </th>
+            <th (click)="setSortBy('view_count')" class="sortable">
+              Views {{ sortBy === 'view_count' ? (sortDirection === 'desc' ? '' : '') : '' }}
+            </th>
+            <th>Sentiment</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let video of filteredVideos" class="clickable">
+            <td class="video-cell" (click)="$event.stopPropagation()">
+              <a [href]="'https://www.youtube.com/watch?v=' + video.video_id" target="_blank">
+                <img [src]="video.thumbnail_url" alt="Thumbnail" class="thumbnail">
+              </a>
+              <div class="video-info" (click)="openVideoModal(video)">
+                <div class="video-title-text">{{ video.title }}</div>
+                <div class="channel-name">{{ video.channel_title }}</div>
+              </div>
+            </td>
+            <td>
+              <div class="impact-score">{{ video.impact_score?.toFixed(2) || '—' }}</div>
+            </td>
+            <td>{{ formatNumber(video.view_count) }}</td>
+            <td>
+              <span class="sentiment-badge" [ngClass]="getSentimentClass(video.overall_sentiment)">
+                {{ video.overall_sentiment || 'N/A' }}
+              </span>
+            </td>
+            <td>
+              <button class="btn-view" (click)="openVideoModal(video); $event.stopPropagation()">
+                View Details
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      
+      <div class="empty-table" *ngIf="filteredVideos.length === 0">
+        <p>No videos match your search</p>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  <!-- NEWS TAB CONTENT -->
+  <div *ngIf="activeTab === 'news'" class="news-tab">
+    <section class="news-section">
+      <h2 class="section-title">News Articles ({{ articles.length }})</h2>
+      
+      <div class="articles-grid">
+        <div class="article-card" *ngFor="let article of articles">
+          <div class="article-header">
+            <span class="article-source">{{ article.source }}</span>
+            <span class="sentiment-badge" [ngClass]="getSentimentClass(article.hf_sentiment)">
+              {{ article.hf_sentiment || 'N/A' }}
+            </span>
+          </div>
+          
+          <h3 class="article-title">
+            <a [href]="article.url" target="_blank">{{ article.title }}</a>
+          </h3>
+          
+          <p class="article-description">{{ article.description }}</p>
+          
+          <div class="article-footer">
+            <span class="article-author" *ngIf="article.author">{{ article.author }}</span>
+            <span class="article-date">{{ formatDate(article.published_at) }}</span>
+          </div>
+              <div class="article-justifications">
+                <p *ngIf="article.hf_justification">
+                  <strong>HF:</strong>
+                  <span *ngIf="!isArticleExpanded(article.id)">
+                    {{ article.hf_justification | slice:0:200 }}
+                    <span *ngIf="article.hf_justification.length > 200">... <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show more</a></span>
+                  </span>
+                  <span *ngIf="isArticleExpanded(article.id)">
+                    {{ article.hf_justification }} <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show less</a>
+                  </span>
+                </p>
+
+                <p *ngIf="article.gemini_justification">
+                  <strong>Gemini:</strong>
+                  <span *ngIf="!isArticleExpanded(article.id)">
+                    {{ article.gemini_justification | slice:0:200 }}
+                    <span *ngIf="article.gemini_justification.length > 200">... <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show more</a></span>
+                  </span>
+                  <span *ngIf="isArticleExpanded(article.id)">
+                    {{ article.gemini_justification }} <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show less</a>
+                  </span>
+                </p>
+
+                <p *ngIf="article.gemini_sarcasm_score !== undefined"><strong>Sarcasm:</strong> {{ (article.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</p>
+              </div>
+        </div>
+      </div>
+      
+      <div class="empty-state" *ngIf="articles.length === 0">
+        <p>No news articles found</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- AI ANALYSIS TAB CONTENT -->
+  <div *ngIf="activeTab === 'ai'" class="ai-tab">
+    <section class="ai-summary-section" *ngIf="aiSummary">
+      <h2 class="section-title">AI-Generated Analysis</h2>
+      
+      <div class="summary-grid">
+        <div class="summary-card">
+          <h3>📊 Overview</h3>
+          <ul class="insights-list">
+            <li *ngFor="let insight of aiSummary.key_insights">{{ insight }}</li>
+          </ul>
+        </div>
+        
+        <div class="summary-card">
+          <h3>🎭 Sentiment Comparison</h3>
+          <div class="comparison">
+            <div class="comparison-col">
+              <h4>Videos</h4>
+              <div class="sentiment-mini">
+                <div class="mini-bar">
+                  <span>👍 {{ aiSummary.video_sentiment_distribution.positive }}</span>
+                </div>
+                <div class="mini-bar">
+                  <span>👎 {{ aiSummary.video_sentiment_distribution.negative }}</span>
+                </div>
+                <div class="mini-bar">
+                  <span>😐 {{ aiSummary.video_sentiment_distribution.neutral }}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="comparison-col">
+              <h4>News</h4>
+              <div class="sentiment-mini">
+                <div class="mini-bar">
+                  <span>👍 {{ aiSummary.news_sentiment_distribution.positive }}</span>
+                </div>
+                <div class="mini-bar">
+                  <span>👎 {{ aiSummary.news_sentiment_distribution.negative }}</span>
+                </div>
+                <div class="mini-bar">
+                  <span>😐 {{ aiSummary.news_sentiment_distribution.neutral }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="alignment-status" [class.aligned]="aiSummary.sentiment_agreement.aligned">
+            <strong>Sentiment Alignment:</strong> 
+            {{ aiSummary.sentiment_agreement.aligned ? 'ALIGNED ✓' : 'DIVERGENT ⚠' }}
+          </div>
+        </div>
+        
+        <div class="summary-card">
+          <h3>🏷️ Top Entities</h3>
+          <div class="entities-list">
+            <span class="entity-tag" *ngFor="let entity of aiSummary.top_entities">
+              {{ entity.text }} ({{ entity.count }})
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+    
+    <div class="loading-container" *ngIf="!aiSummary">
+      <div class="spinner"></div>
+      <p>Generating AI analysis...</p>
+    </div>
+  </div>
+  <!-- End of AI Tab -->
+
+  <!-- Modal and Loading sections (outside tabs, but inside main container) -->
+</div>
+<!-- End of Main Analysis Container -->
+
+<div class="loading-container" *ngIf="loading">
+  <div class="spinner"></div>
+  <p>Loading analysis...</p>
+</div>
+
+<!-- Video Deep-Dive Modal -->
+<div class="modal-overlay" *ngIf="showVideoModal && selectedVideo" (click)="closeVideoModal()">
+  <div class="modal-content large" (click)="$event.stopPropagation()">
+    <button class="modal-close" (click)="closeVideoModal()"></button>
+    
+    <div class="modal-header">
+      <a [href]="'https://www.youtube.com/watch?v=' + selectedVideo.video_id" target="_blank" class="video-link">
+        <img [src]="selectedVideo.thumbnail_url" alt="Thumbnail" class="modal-thumbnail">
+      </a>
+      <div class="modal-title-section">
+        <h2>
+          <a [href]="'https://www.youtube.com/watch?v=' + selectedVideo.video_id" target="_blank" class="video-title-link">
+            {{ selectedVideo.title }}
+          </a>
+        </h2>
+        <p class="modal-channel">{{ selectedVideo.channel_title }}</p>
+      </div>
+    </div>
+    
+    <div class="modal-tabs">
+      <div class="tab-content">
+        <h3>Transcript</h3>
+        <div class="transcript-container" *ngIf="videoTranscript">
+          <div class="transcript-box">
+            <p class="transcript-text">{{ videoTranscript.text }}</p>
+            <div class="transcript-stats">
+              <span class="stat-badge">📝 {{ videoTranscript.word_count }} words</span>
+              <span class="stat-badge" *ngIf="videoTranscript.processing_time">⏱️ {{ videoTranscript.processing_time.toFixed(1) }}s</span>
+              <span class="stat-badge">🔤 {{ videoTranscript.language?.toUpperCase() }}</span>
+            </div>
+          </div>
+        </div>
+        <p *ngIf="!videoTranscript" class="loading-text">Loading transcript...</p>
+        
+        <h3>🎯 Sentiment Analysis</h3>
+        <div class="sentiment-comparison" *ngIf="videoSentiments.length > 0">
+          <div class="sentiment-model" *ngFor="let sentiment of videoSentiments">
+            <h4>{{ sentiment.model_name === 'huggingface' ? '🤗 HuggingFace Analysis' : '✨ Gemini Analysis' }}</h4>
+            
+            <div class="sentiment-result" [ngClass]="(sentiment.sentiment || '').toLowerCase()">
+              {{ sentiment.sentiment }}
+            </div>
+            
+            <div class="confidence-bar" *ngIf="sentiment.confidence">
+              <div class="confidence-label">
+                <span>Confidence</span>
+                <span>{{ (sentiment.confidence * 100).toFixed(1) }}%</span>
+              </div>
+              <div class="bar-container">
+                <div class="bar-fill" [style.width.%]="sentiment.confidence * 100"></div>
+              </div>
+            </div>
+            
+            <div class="sentiment-scores" *ngIf="sentiment.positive_score !== undefined && sentiment.negative_score !== undefined">
+              <div class="score-item">
+                <div class="score-label">Positive</div>
+                <div class="score-value">{{ (sentiment.positive_score * 100).toFixed(1) }}%</div>
+              </div>
+              <div class="score-item">
+                <div class="score-label">Negative</div>
+                <div class="score-value">{{ (sentiment.negative_score * 100).toFixed(1) }}%</div>
+              </div>
+            </div>
+            
+            <!-- Model Justification -->
+            <div class="model-justification" *ngIf="sentiment.hf_justification || sentiment.gemini_justification || sentiment.gemini_sarcasm_score !== undefined">
+              <h5>Explanation</h5>
+              <p class="justification-text" *ngIf="sentiment.hf_justification && (sentiment.model_name || '').toLowerCase().includes('hugging')">
+                <strong>HF:</strong>
+                <span *ngIf="!isSentimentExpanded(sentiment.id)">
+                  {{ sentiment.hf_justification | slice:0:220 }}
+                  <span *ngIf="sentiment.hf_justification.length > 220">... <a href="#" (click)="toggleSentimentExpand(sentiment.id, $event)">Show more</a></span>
+                </span>
+                <span *ngIf="isSentimentExpanded(sentiment.id)">
+                  {{ sentiment.hf_justification }} <a href="#" (click)="toggleSentimentExpand(sentiment.id, $event)">Show less</a>
+                </span>
+              </p>
+              <p class="justification-text" *ngIf="sentiment.gemini_justification && (sentiment.model_name || '').toLowerCase().includes('gemini')">
+                <strong>Gemini:</strong>
+                <span *ngIf="!isSentimentExpanded(sentiment.id)">
+                  {{ sentiment.gemini_justification | slice:0:220 }}
+                  <span *ngIf="sentiment.gemini_justification.length > 220">... <a href="#" (click)="toggleSentimentExpand(sentiment.id, $event)">Show more</a></span>
+                </span>
+                <span *ngIf="isSentimentExpanded(sentiment.id)">
+                  {{ sentiment.gemini_justification }} <a href="#" (click)="toggleSentimentExpand(sentiment.id, $event)">Show less</a>
+                </span>
+              </p>
+
+              <div class="sarcasm-row" *ngIf="sentiment.gemini_sarcasm_score !== undefined">
+                <div class="sarcasm-label">Sarcasm score</div>
+                <div class="sarcasm-bar">
+                  <div class="sarcasm-fill" [style.width.%]="(sentiment.gemini_sarcasm_score * 100)"></div>
+                </div>
+                <div class="sarcasm-value">{{ (sentiment.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Comments Section -->
+        <div class="comments-section" *ngIf="videoComments.length > 0">
+          <div class="section-header">
+            <h3>💬 User Comments Analysis</h3>
+            <span class="comments-count">{{ videoComments.length }} Comments</span>
+          </div>
+          
+          <div class="comments-list">
+            <div class="comment-item" *ngFor="let comment of videoComments">
+              <div class="comment-header">
+                <div class="comment-author">{{ comment.author }}</div>
+                <div class="comment-meta">
+                  <span class="like-count" *ngIf="comment.like_count > 0">{{ comment.like_count }}</span>
+                  <span class="comment-date" *ngIf="comment.published_at">{{ formatDate(comment.published_at) }}</span>
+                </div>
+              </div>
+              
+              <div class="comment-text">{{ comment.text }}</div>
+              
+              <div class="comment-sentiments">
+                <div class="sentiment-badge hf" [ngClass]="comment.hf_sentiment?.toLowerCase()">
+                  <span class="model-label">🤗 HuggingFace</span>
+                  <span class="sentiment-value">{{ comment.hf_sentiment || 'N/A' }}</span>
+                </div>
+                <div class="sentiment-badge gemini" [ngClass]="comment.gemini_sentiment?.toLowerCase()">
+                  <span class="model-label">✨ Gemini</span>
+                  <span class="sentiment-value">{{ comment.gemini_sentiment || 'N/A' }}</span>
+                </div>
+              </div>
+              
+              <div class="comment-justifications">
+                <p class="justification" *ngIf="comment.hf_justification">
+                  <strong>HF:</strong>
+                  <span *ngIf="!isCommentExpanded(comment.id)">
+                    {{ comment.hf_justification | slice:0:180 }}
+                    <span *ngIf="comment.hf_justification.length > 180">... <a href="#" (click)="toggleCommentExpand(comment.id, $event)">Show more</a></span>
+                  </span>
+                  <span *ngIf="isCommentExpanded(comment.id)">
+                    {{ comment.hf_justification }} <a href="#" (click)="toggleCommentExpand(comment.id, $event)">Show less</a>
+                  </span>
+                </p>
+
+                <p class="justification" *ngIf="comment.gemini_justification">
+                  <strong>Gemini:</strong>
+                  <span *ngIf="!isCommentExpanded(comment.id)">
+                    {{ comment.gemini_justification | slice:0:180 }}
+                    <span *ngIf="comment.gemini_justification.length > 180">... <a href="#" (click)="toggleCommentExpand(comment.id, $event)">Show more</a></span>
+                  </span>
+                  <span *ngIf="isCommentExpanded(comment.id)">
+                    {{ comment.gemini_justification }} <a href="#" (click)="toggleCommentExpand(comment.id, $event)">Show less</a>
+                  </span>
+                </p>
+
+                <p class="justification" *ngIf="comment.gemini_sarcasm_score !== undefined"><strong>Sarcasm:</strong> {{ (comment.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Loading State -->
+<div class="loading-container" *ngIf="loading">
+  <div class="loading-spinner"></div>
+  <h2 class="loading-title">Loading Analysis...</h2>
+  <p class="loading-subtitle">Gathering insights for {{ topic?.topic_name || 'your topic' }}</p>
 </div>

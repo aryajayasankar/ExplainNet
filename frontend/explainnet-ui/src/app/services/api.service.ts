@@ -1,228 +1,73 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, throwError, catchError, retry } from 'rxjs';
-import { Topic } from '../models/topicmodel';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+import { Topic, TopicCreate, Video, Sentiment, Comment, Transcript, NewsArticle } from '../models/topic.model';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ApiService {
-  private backendUrl = 'http://127.0.0.1:8000';
+  private baseUrl = environment.apiBaseUrl;
 
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient) {}
 
-  // Error handling
-  private handleError(error: HttpErrorResponse) {
-    let errorMessage = 'An error occurred';
-    if (error.error instanceof ErrorEvent) {
-      // Client-side error
-      errorMessage = `Error: ${error.error.message}`;
-    } else {
-      // Server-side error
-      errorMessage = `Error Code: ${error.status}\nMessage: ${error.message}`;
-    }
-    console.error(errorMessage);
-    return throwError(() => new Error(errorMessage));
+  // Topic endpoints
+  getTopics(): Observable<Topic[]> {
+    return this.http.get<Topic[]>(`${this.baseUrl}/topics`);
   }
 
-  analyzeTopic(topicName: string): Observable<any> {
-    const endpoint = `${this.backendUrl}/analyze/`;
-    const body = { topic_name: topicName };
-    return this.http.post(endpoint, body).pipe(
-      catchError(this.handleError)
-    );
+  getTopic(id: number): Observable<Topic> {
+    return this.http.get<Topic>(`${this.baseUrl}/topics/${id}`);
   }
 
-  getTopics(timezone: string = 'UTC'): Observable<Topic[]> {
-    const endpoint = `${this.backendUrl}/topics/?timezone=${encodeURIComponent(timezone)}`;
-    return this.http.get<Topic[]>(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  createTopic(topic: TopicCreate): Observable<Topic> {
+    return this.http.post<Topic>(`${this.baseUrl}/topics`, topic);
   }
 
-  getTimezones(): Observable<any> {
-    const endpoint = `${this.backendUrl}/timezones/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  deleteTopic(id: number): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(`${this.baseUrl}/topics/${id}`);
   }
 
-  getTopicById(id: number): Observable<Topic> {
-    return this.http.get<Topic>(`${this.backendUrl}/topics/${id}`).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // Video endpoints
+  getVideosByTopic(topicId: number): Observable<Video[]> {
+    return this.http.get<Video[]>(`${this.baseUrl}/topics/${topicId}/videos`);
   }
 
-  // YouTube analytics
-  getChannelAnalytics(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/channel-analytics/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  getVideo(id: number): Observable<Video> {
+    return this.http.get<Video>(`${this.baseUrl}/videos/${id}`);
   }
 
-  getVideoTimeline(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/video-timeline/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // Sentiment endpoints
+  getSentimentsByVideo(videoId: number): Observable<Sentiment[]> {
+    return this.http.get<Sentiment[]>(`${this.baseUrl}/videos/${videoId}/sentiments`);
   }
 
-  // News analytics
-  getNewsReliability(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/enhanced-news-reliability/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // Comment endpoints
+  getCommentsByVideo(videoId: number): Observable<Comment[]> {
+    return this.http.get<Comment[]>(`${this.baseUrl}/videos/${videoId}/comments`);
   }
 
-  getGuardianArticles(topicId: number): Observable<any[]> {
-    return this.http.get<any[]>(`${this.backendUrl}/topics/${topicId}/news-data/`).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // Transcript endpoints
+  getTranscriptByVideo(videoId: number): Observable<Transcript> {
+    return this.http.get<Transcript>(`${this.baseUrl}/videos/${videoId}/transcript`);
   }
 
-  getNewsApiArticles(topicId: number): Observable<any[]> {
-    return this.http.get<any[]>(`${this.backendUrl}/topics/${topicId}/news-data/`).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // News endpoints
+  getArticlesByTopic(topicId: number): Observable<NewsArticle[]> {
+    return this.http.get<NewsArticle[]>(`${this.baseUrl}/topics/${topicId}/articles`);
   }
 
-  getNewsData(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/news-data/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  // Analysis Tab endpoints
+  getVideosAnalysis(topicId: number): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/videos-analysis`);
   }
 
-  getYouTubeData(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/youtube-data/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
+  getNewsAnalysis(topicId: number): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/news-analysis`);
   }
 
-  // News data fetching
-  fetchHistoricalNews(topicId: number): Observable<any> {
-    return this.http.post<any>(`${this.backendUrl}/topics/${topicId}/fetch-historical-news/`, {}).pipe(
-      catchError(this.handleError)
-    );
+  getAISummary(topicId: number): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/ai-summary`);
   }
-
-  fetchRecentNews(topicId: number): Observable<any> {
-    return this.http.post<any>(`${this.backendUrl}/topics/${topicId}/fetch-recent-news/`, {}).pipe(
-      catchError(this.handleError)
-    );
-  }
-
-  // Legacy methods for compatibility
-  getYouTubeMetrics(): Observable<any> {
-    const endpoint = `${this.backendUrl}/metrics/youtube/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getNewsMetrics(): Observable<any> {
-    const endpoint = `${this.backendUrl}/metrics/news/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getViewsTimeline(topic: string): Observable<any> {
-    const endpoint = `${this.backendUrl}/metrics/youtube/timeline/${topic}`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getSentimentAnalysis(topic: string): Observable<any> {
-    const endpoint = `${this.backendUrl}/metrics/youtube/sentiment/${topic}`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getSourceReliability(): Observable<any> {
-    const endpoint = `${this.backendUrl}/metrics/news/reliability/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getEnhancedNewsReliability(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/enhanced-news-reliability/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  // Analytics endpoints - Get all data across topics
-  getAllVideos(): Observable<any> {
-    const endpoint = `${this.backendUrl}/analytics/videos/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getAllRecentNews(): Observable<any> {
-    const endpoint = `${this.backendUrl}/analytics/recent-news/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getAllOlderNews(): Observable<any> {
-    const endpoint = `${this.backendUrl}/analytics/older-news/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  // Topic-specific analytics endpoints
-  getTopicVideos(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/youtube-data/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getTopicNews(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/news-data/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  getTopicOlderNews(topicId: number): Observable<any> {
-    const endpoint = `${this.backendUrl}/topics/${topicId}/news-data/`;
-    return this.http.get(endpoint).pipe(
-      retry(1),
-      catchError(this.handleError)
-    );
-  }
-
-  
 }

@@ -1,11 +1,13 @@
 import { Routes } from '@angular/router';
-import { LockerComponent } from './pages/locker/locker.component';
-import { AnalysisComponent } from './pages/analysis/analysis.component';
-import { TopicDetail } from './pages/topic-detail/topic-detail';
 
 export const routes: Routes = [
-    { path: 'locker', component: LockerComponent },
-    { path: 'locker/:id', component: TopicDetail }, // Changed to TopicDetail
-    { path: 'analysis', component: AnalysisComponent },
-    { path: '', redirectTo: '/analysis', pathMatch: 'full' },
+  { path: '', redirectTo: '/locker', pathMatch: 'full' },
+  { 
+    path: 'locker', 
+    loadComponent: () => import('./pages/locker/locker.component').then(m => m.LockerComponent)
+  },
+  { 
+    path: 'analysis/:id', 
+    loadComponent: () => import('./pages/analysis/analysis.component').then(m => m.AnalysisComponent)
+  }
 ];

@@ -1,18 +1,25 @@
-import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from pathlib import Path
+import os
 
-# Tell dotenv to find the .env file in this directory
-dotenv_path = Path(__file__).resolve().parent / '.env'
-load_dotenv(dotenv_path=dotenv_path)
+load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./explainnet.db")
 
-if not DATABASE_URL:
-    raise ValueError("DATABASE_URL not found in .env file. Please check your configuration.")
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+)
 
-engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

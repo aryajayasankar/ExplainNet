@@ -1,202 +1,104 @@
-import { Component, OnInit } from '@angular/core';
-import { Router } from '@angular/router';
-import { ApiService } from '../../services/api.service';
-import { Chart } from 'chart.js/auto';
+﻿import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { MatTableModule } from '@angular/material/table';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatTabsModule } from '@angular/material/tabs';
-import { MatSelectModule } from '@angular/material/select';
-import { MatFormFieldModule } from '@angular/material/form-field';
+import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { Topic } from '../../models/topicmodel';
+import { ApiService } from '../../services/api.service';
+import { Topic, TopicCreate } from '../../models/topic.model';
 
 @Component({
   selector: 'app-locker',
-  templateUrl: './locker.html',
-  styleUrls: ['./locker.scss'],
   standalone: true,
-  imports: [
-    CommonModule,
-    MatTableModule,
-    MatProgressSpinnerModule,
-    MatTabsModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    FormsModule
-  ]
+  imports: [CommonModule, RouterModule, FormsModule],
+  templateUrl: './locker.component.html',
+  styleUrls: ['./locker.component.scss']
 })
 export class LockerComponent implements OnInit {
-  displayedColumns: string[] = ['topic_name', 'search_date', 'article_count', 'video_count'];
-  isLoading = false;
-  activeTab: 'youtube' | 'news' = 'youtube';
-  activeNewsTab: 'guardian' | 'overall' = 'guardian';
-  selectedTopic: string = '';
-  selectedTimezone: string = 'UTC';
-  timezones: any[] = [];
-  topics: Topic[] = []; // Changed to use proper Topic interface
-  viewsChart: any;
-  
-  youtubeMetrics = {
-    channels: [],
-    viewsData: [],
-    sentimentAnalysis: []
-  };
+  topics: Topic[] = [];
+  loading = false;
+  showCreateModal = false;
+  newTopicName = '';
+  creating = false;
 
-  newsMetrics = {
-    guardian: {
-      reliability: 0,
-      coverage: 0,
-      articles: 0
-    },
-    overall: {
-      sourcesRanking: [],
-      topicCoverage: []
-    }
-  };
-
-  constructor(private apiService: ApiService, private router: Router) {}
+  constructor(private apiService: ApiService) {}
 
   ngOnInit() {
-    this.loadTimezones();
-    this.loadTopics();
-    this.loadMetrics();
-  }
-
-  // ADD THIS METHOD - This was missing!
-  navigateToTopic(row: Topic) {
-    console.log('Navigating to topic:', row);
-    this.router.navigate(['/locker', row.topic_id]);
-  }
-
-  loadTimezones() {
-    this.apiService.getTimezones().subscribe(
-      (data) => {
-        this.timezones = data.timezones;
-      },
-      (error) => {
-        console.error('Error loading timezones:', error);
-      }
-    );
-  }
-
-  onTimezoneChange() {
     this.loadTopics();
   }
 
   loadTopics() {
-    this.apiService.getTopics(this.selectedTimezone).subscribe(
-      (data) => {
-        this.topics = data; // Store full objects instead of just names
-        if (this.topics.length > 0) {
-          this.selectedTopic = this.topics[0].topic_name;
-          this.loadViewsTimeline(this.topics[0].topic_id);
-        }
+    this.loading = true;
+    this.apiService.getTopics().subscribe({
+      next: (topics) => {
+        this.topics = topics;
+        this.loading = false;
       },
-      (error) => {
-        console.error('Error loading topics:', error);
+      error: (err) => {
+        console.error('Error loading topics:', err);
+        this.loading = false;
       }
-    );
+    });
   }
 
-  loadMetrics() {
-    // For now, let's comment these out since the API methods don't exist yet
-    /*
-    this.apiService.getYouTubeMetrics().subscribe(
-      (data) => {
-        this.youtubeMetrics = data;
-      }
-    );
-
-    this.apiService.getNewsMetrics().subscribe(
-      (data) => {
-        this.newsMetrics = data;
-      }
-    );
-    */
+  openCreateModal() {
+    this.showCreateModal = true;
+    this.newTopicName = '';
   }
 
-  loadViewsTimeline(topicId: number) {
-    if (this.viewsChart) {
-      this.viewsChart.destroy();
-    }
+  closeCreateModal() {
+    this.showCreateModal = false;
+    this.newTopicName = '';
+  }
 
-    // For now, create mock data since the API method doesn't exist yet
-    const mockData = {
-      dates: ['2023-01-01', '2023-01-02', '2023-01-03'],
-      channels: ['Channel 1', 'Channel 2'],
-      views: [[100, 200, 300], [150, 250, 350]]
+  createTopic() {
+    if (!this.newTopicName.trim()) return;
+    
+    this.creating = true;
+    const topicData: TopicCreate = { topic_name: this.newTopicName };
+    
+    this.apiService.createTopic(topicData).subscribe({
+      next: (topic) => {
+        this.topics.unshift(topic);
+        this.closeCreateModal();
+        this.creating = false;
+      },
+      error: (err) => {
+        console.error('Error creating topic:', err);
+        this.creating = false;
+      }
+    });
+  }
+
+  deleteTopic(id: number, event: Event) {
+    event.stopPropagation();
+    if (!confirm('Are you sure you want to delete this topic?')) return;
+    
+    this.apiService.deleteTopic(id).subscribe({
+      next: () => {
+        this.topics = this.topics.filter(t => t.id !== id);
+      },
+      error: (err) => {
+        console.error('Error deleting topic:', err);
+      }
+    });
+  }
+
+  getStatusClass(status: string): string {
+    const classes: Record<string, string> = {
+      completed: 'status-completed',
+      processing: 'status-processing',
+      pending: 'status-pending',
+      failed: 'status-failed'
     };
-    this.createViewsChart(mockData);
-
-    /*
-    // Uncomment this when the API method exists
-    this.apiService.getViewsTimeline(topicId).subscribe(
-      (data) => {
-        this.createViewsChart(data);
-      },
-      (error) => {
-        console.error('Error loading timeline:', error);
-      }
-    );
-    */
+    return classes[status] || '';
   }
 
-  private createViewsChart(data: any) {
-    const ctx = document.getElementById('viewsChart') as HTMLCanvasElement;
-    if (ctx) {
-      this.viewsChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: data.dates,
-          datasets: data.channels.map((channel: string, index: number) => ({
-            label: channel,
-            data: data.views[index],
-            borderColor: this.getChartColor(index),
-            fill: false
-          }))
-        },
-        options: {
-          responsive: true,
-          plugins: {
-            title: {
-              display: true,
-              text: 'Views Over Time by Channel'
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              title: {
-                display: true,
-                text: 'Views'
-              }
-            },
-            x: {
-              title: {
-                display: true,
-                text: 'Publication Date'
-              }
-            }
-          }
-        }
-      });
-    }
-  }
-
-  private getChartColor(index: number): string {
-    const colors = [
-      '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
-      '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
-    ];
-    return colors[index % colors.length];
-  }
-
-  onTopicChange(topic: string) {
-    this.selectedTopic = topic;
-    const selectedTopicObj = this.topics.find(t => t.topic_name === topic);
-    if (selectedTopicObj) {
-      this.loadViewsTimeline(selectedTopicObj.topic_id);
-    }
+  getStatusIcon(status: string): string {
+    const icons: Record<string, string> = {
+      completed: '',
+      processing: '',
+      pending: '',
+      failed: ''
+    };
+    return icons[status] || '?';
   }
 }
