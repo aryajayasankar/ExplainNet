@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExplainNet Database Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #2D033B 0%, #810CA8 100%);
+            min-height: 100vh;
+            padding: 2rem;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #E5B8F4;
+            text-align: center;
+            margin-bottom: 2rem;
+            font-size: 2.5rem;
+            text-shadow: 0 0 20px rgba(193, 71, 233, 0.5);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .stat-card h3 {
+            color: #810CA8;
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-card p {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+        
+        .actions {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .actions h2 {
+            color: #2D033B;
+            margin-bottom: 1rem;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-right: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .btn-refresh {
+            background: linear-gradient(135deg, #810CA8, #C147E9);
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        
+        .topics-list {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .topics-list h2 {
+            color: #2D033B;
+            margin-bottom: 1.5rem;
+        }
+        
+        .topic-item {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 1rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .topic-item:last-child {
+            border-bottom: none;
+        }
+        
+        .topic-info h4 {
+            color: #2D033B;
+            margin-bottom: 0.25rem;
+        }
+        
+        .topic-meta {
+            color: #6b7280;
+            font-size: 0.85rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        
+        .status-completed {
+            background: rgba(34, 197, 94, 0.2);
+            color: #16a34a;
+        }
+        
+        .status-processing {
+            background: rgba(59, 130, 246, 0.2);
+            color: #2563eb;
+        }
+        
+        .status-pending {
+            background: rgba(251, 191, 36, 0.2);
+            color: #d97706;
+        }
+        
+        .status-failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: #dc2626;
+        }
+        
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        .empty {
+            text-align: center;
+            color: #6b7280;
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗄️ ExplainNet Database Admin</h1>
+        
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+                <h3 id="totalTopics">-</h3>
+                <p>Topics</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalVideos">-</h3>
+                <p>Videos</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalArticles">-</h3>
+                <p>Articles</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalSentiments">-</h3>
+                <p>Sentiments</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalComments">-</h3>
+                <p>Comments</p>
+            </div>
+            <div class="stat-card">
+                <h3 id="totalTranscripts">-</h3>
+                <p>Transcripts</p>
+            </div>
+        </div>
+        
+        <div class="actions">
+            <h2>Database Actions</h2>
+            <button class="btn btn-refresh" onclick="loadStats()">🔄 Refresh Data</button>
+            <button class="btn btn-danger" onclick="clearDatabase()">🗑️ Clear Entire Database</button>
+        </div>
+        
+        <div class="topics-list">
+            <h2>Topics in Database</h2>
+            <div id="topicsList"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:8000';
+        
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_URL}/api/admin/database-stats`);
+                const data = await response.json();
+                
+                document.getElementById('totalTopics').textContent = data.total_topics;
+                document.getElementById('totalVideos').textContent = data.total_videos;
+                document.getElementById('totalArticles').textContent = data.total_articles;
+                document.getElementById('totalSentiments').textContent = data.total_sentiments;
+                document.getElementById('totalComments').textContent = data.total_comments;
+                document.getElementById('totalTranscripts').textContent = data.total_transcripts;
+                
+                displayTopics(data.topics);
+            } catch (error) {
+                console.error('Error loading stats:', error);
+                alert('Error loading database stats. Make sure the backend is running on port 8000.');
+            }
+        }
+        
+        function displayTopics(topics) {
+            const container = document.getElementById('topicsList');
+            
+            if (topics.length === 0) {
+                container.innerHTML = '<div class="empty">No topics in database</div>';
+                return;
+            }
+            
+            container.innerHTML = topics.map(topic => `
+                <div class="topic-item">
+                    <div class="topic-info">
+                        <h4>
+                            ${topic.name}
+                            <span class="status-badge status-${topic.status}">${topic.status}</span>
+                        </h4>
+                        <div class="topic-meta">
+                            ID: ${topic.id} | 
+                            Videos: ${topic.videos_count} | 
+                            Articles: ${topic.articles_count} | 
+                            Created: ${new Date(topic.created_at).toLocaleString()}
+                        </div>
+                    </div>
+                    <button class="btn btn-danger" onclick="clearTopicData(${topic.id}, '${topic.name}')">
+                        Clear Data
+                    </button>
+                </div>
+            `).join('');
+        }
+        
+        async function clearDatabase() {
+            if (!confirm('⚠️ Are you ABSOLUTELY sure you want to clear the ENTIRE database? This cannot be undone!')) {
+                return;
+            }
+            
+            if (!confirm('This will delete ALL topics, videos, articles, sentiments, comments, and transcripts. Continue?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/api/admin/clear-database`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                alert(data.message);
+                loadStats();
+            } catch (error) {
+                console.error('Error clearing database:', error);
+                alert('Error clearing database');
+            }
+        }
+        
+        async function clearTopicData(topicId, topicName) {
+            if (!confirm(`Clear all data for topic "${topicName}"? This will delete all videos, articles, sentiments, comments, and transcripts for this topic.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_URL}/api/admin/clear-topic-data/${topicId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                alert(data.message);
+                loadStats();
+            } catch (error) {
+                console.error('Error clearing topic data:', error);
+                alert('Error clearing topic data');
+            }
+        }
+        
+        // Load stats on page load
+        loadStats();
+        
+        // Auto-refresh every 10 seconds
+        setInterval(loadStats, 10000);
+    </script>
+</body>
+</html>

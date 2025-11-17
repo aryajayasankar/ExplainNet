@@ -1,6 +1,7 @@
 import google.generativeai as genai
 import os
 import json
+import asyncio
 from typing import Dict, Optional
 
 # Primary Gemini API key (for YouTube: transcripts, comments, video sentiment)
@@ -288,8 +289,25 @@ Provide JSON response:
                 "emotions": json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0}),
                 "justification": "No working Gemini model available"
             }
+        
         model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
+        
+        # Add timeout to prevent hanging (15 seconds for comment analysis)
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(model.generate_content, prompt),
+                timeout=15.0
+            )
+        except asyncio.TimeoutError:
+            return {
+                "sentiment": None,
+                "sentiment_score": 0.0,
+                "confidence": 0.0,
+                "toxicity_score": 0.0,
+                "emotions": json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0}),
+                "justification": "Gemini API timeout after 15s"
+            }
+        
         response_text = getattr(response, "text", "") or str(response)
         response_text = response_text.strip()
 
@@ -649,10 +667,10 @@ async def generate_ai_synthesis(topic_data: Dict) -> Dict:
     negative_count = sum(1 for s in video_sentiments if s == "NEGATIVE")
     neutral_count = sum(1 for s in video_sentiments if s == "NEUTRAL")
     
-    avg_impact = sum(v.get("impact_score", 0) for v in videos) / total_videos if total_videos > 0 else 0
-    total_views = sum(v.get("view_count", 0) for v in videos)
+    avg_impact = sum(v.get("impact_score") or 0 for v in videos) / total_videos if total_videos > 0 else 0
+    total_views = sum(v.get("view_count") or 0 for v in videos)
     
-    avg_relevance = sum(a.get("relevance_score", 50) for a in articles) / total_articles if total_articles > 0 else 0
+    avg_relevance = sum(a.get("relevance_score") or 50 for a in articles) / total_articles if total_articles > 0 else 0
     
     prompt = f"""
 You are an expert data analyst. Analyze this comprehensive dataset about "{topic_name}" and provide actionable insights.

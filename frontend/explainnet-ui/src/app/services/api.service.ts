@@ -70,4 +70,8 @@ export class ApiService {
   getAISummary(topicId: number): Observable<any> {
     return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/ai-summary`);
   }
+
+  getAISynthesis(topicId: number): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/ai-synthesis`);
+  }
 }

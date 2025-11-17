@@ -256,7 +256,9 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         print(f"   Error type: {type(e).__name__}")
         import traceback
         print(f"   Full traceback:\n{traceback.format_exc()}")
-        print(f"{'#'*80}\n")
+        print(f"\n{'#'*80}\n")
+        # Rollback session before updating status
+        db.rollback()
         crud.update_topic_status(db, topic_id, "failed", str(e))
 
 
@@ -323,8 +325,13 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         
         if transcript_result["text"]:
             print(f"\n✓ Transcript available, creating database record...")
-            crud.create_transcript(db, transcript_result, db_video.id)
-            print(f"✓ Transcript saved to database")
+            try:
+                crud.create_transcript(db, transcript_result, db_video.id)
+                print(f"✓ Transcript saved to database")
+            except Exception as transcript_save_error:
+                print(f"✗ Error saving transcript: {transcript_save_error}")
+                db.rollback()
+                # Continue processing even if transcript save fails
             
             # Step 5: Analyze sentiment (both models)
             transcript_text = transcript_result["text"]
@@ -423,6 +430,8 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
                                 comment_data["gemini_sentiment"] = None
                                 comment_data["gemini_support"] = None
                                 comment_data["gemini_score"] = None
+                            # Small delay to avoid rate limiting
+                            await asyncio.sleep(0.5)
                         except Exception as gemini_err:
                             print(f"      ⚠️ Gemini failed for comment {idx}: {str(gemini_err)[:50]}")
                             comment_data["gemini_sentiment"] = None
@@ -493,4 +502,6 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         print(f"   Error type: {type(e).__name__}")
         import traceback
         print(f"   Traceback:\n{traceback.format_exc()}")
-        print(f"{'='*80}\n")
+        print(f"\n{'='*80}\n")
+        # Rollback the session to clear error state
+        db.rollback()
