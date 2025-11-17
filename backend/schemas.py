@@ -156,6 +156,9 @@ class NewsArticleResponse(BaseModel):
     # Impact Score
     impact_score: Optional[float] = None
     
+    # Relevance Score (0-100, how closely article relates to topic)
+    relevance_score: Optional[int] = None
+    
     # Entities (JSON string)
     entities_json: Optional[str] = None
     # Backwards-compatible property name expected in some code paths

@@ -106,11 +106,11 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         # Step 5: Search and analyze news articles (both recent and historical)
         print(f"📰 Step 5: Searching news articles...")
         print(f"   - Fetching recent news (NewsAPI)...")
-        recent_articles = await news_service.search_articles(topic_name, max_results=15)
+        recent_articles = await news_service.search_articles(topic_name, max_results=2)
         print(f"   ✓ Found {len(recent_articles)} recent articles")
         
         print(f"   - Fetching historical news (Guardian)...")
-        historical_articles = await news_service.search_guardian_articles(topic_name, max_results=15)
+        historical_articles = await news_service.search_guardian_articles(topic_name, max_results=2)
         print(f"   ✓ Found {len(historical_articles)} historical articles\n")
         
         # Tag articles by source type: recent (NewsAPI) vs historical (Guardian)
@@ -163,6 +163,14 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
                 else:
                     print(f"   ⚠️  Article {idx} summary failed: {e}")
                     article_data["gemini_justification"] = f"Summary unavailable: {str(e)}"
+            
+            # Calculate relevance score (how closely article relates to topic)
+            try:
+                relevance = await gemini_service.calculate_news_relevance(topic_name, article_title)
+                article_data["relevance_score"] = relevance
+            except Exception as e:
+                print(f"   ⚠️  Relevance calculation failed for article {idx}: {e}")
+                article_data["relevance_score"] = 50  # Default middling score
             
             # Delay 6.5 seconds between articles (slightly over 6s for safety)
             # This ensures we stay under 10 requests/minute
