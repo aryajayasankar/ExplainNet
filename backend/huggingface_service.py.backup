@@ -1,0 +1,210 @@
+import aiohttp
+import os
+from typing import Dict
+
+# Use a currently supported sentiment model on HuggingFace Inference API
+HUGGINGFACE_API_URL = "https://api-inference.huggingface.co/models/cardiffnlp/twitter-roberta-base-sentiment"
+HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
+
+
+async def analyze_sentiment(text: str) -> Dict:
+    """
+    Analyze sentiment using HuggingFace Inference API
+    
+    Args:
+        text: Text to analyze
+    
+    Returns:
+        Dict with sentiment, confidence, and score breakdown
+    """
+    
+    if not HUGGINGFACE_API_KEY:
+        # HuggingFace allows some requests without API key, but with rate limits
+        pass
+    
+    headers = {}
+    if HUGGINGFACE_API_KEY:
+        headers["Authorization"] = f"Bearer {HUGGINGFACE_API_KEY}"
+    
+    # Truncate text to 512 tokens (roughly 2000 characters for safety)
+    text = text[:2000]
+    
+    timeout = aiohttp.ClientTimeout(total=30.0, connect=10.0)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        try:
+            async with session.post(
+                HUGGINGFACE_API_URL,
+                headers=headers,
+                json={"inputs": text}
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+                data = await response.json()
+            
+                # HuggingFace returns a list of results
+                if isinstance(data, list) and len(data) > 0:
+                    # Many HF sentiment models return a list of dicts
+                    # e.g. [{'label':'NEGATIVE','score':0.1}, ...] or ['LABEL_0',...]
+                    # We'll aggregate into positive/negative/neutral scores robustly.
+                    positive_score = 0.0
+                    negative_score = 0.0
+                    neutral_score = 0.0
+
+                    # Data may be nested or a single dict
+                    results = data
+
+                    # If the result is a single dict with label/score, wrap it
+                    if isinstance(data[0], dict) and 'label' in data[0] and 'score' in data[0]:[0]:
+                        # Some models return multiple labels as separate dicts
+                        for item in data:
+                            label = str(item.get('label', '')).upper()
+                            score = float(item.get('score', 0.0) or 0.0)
+                            if 'POSITIVE' in label or 'LABEL_2' in label:
+                                positive_score = max(positive_score, score)
+                            elif 'NEGATIVE' in label or 'LABEL_0' in label:
+                                negative_score = max(negative_score, score)
+                            elif 'NEUTRAL' in label or 'LABEL_1' in label:
+                                neutral_score = max(neutral_score, score)
+
+                    # If the API returns a dict mapping (older variations), try to interpret
+                    elif isinstance(data[0], dict):
+                        for item in data:
+                            label = str(item.get('label', '')).upper()
+                            score = float(item.get('score', 0.0) or 0.0)
+                            if 'POS' in label:
+                                positive_score = max(positive_score, score)
+                            elif 'NEG' in label:
+                                negative_score = max(negative_score, score)
+                            elif 'NEU' in label:
+                                neutral_score = max(neutral_score, score)
+
+                    # Normalize if needed
+                    total = positive_score + negative_score + neutral_score
+                    if total <= 0:
+                        # No usable scores returned — indicate missing sentiment rather than forcing NEUTRAL
+                        return {
+                            'model_name': 'huggingface',
+                            'sentiment': None,
+                            'confidence': 0.0,
+                            'positive_score': 0.0,
+                            'negative_score': 0.0,
+                            'neutral_score': 0.0,
+                            'justification': 'No usable scores from HuggingFace API'
+                        }
+
+                    positive_norm = positive_score / total
+                    negative_norm = negative_score / total
+                    neutral_norm = neutral_score / total
+
+                    # Decide sentiment by highest normalized score
+                    if positive_norm >= negative_norm and positive_norm >= neutral_norm:
+                        sentiment = 'POSITIVE'
+                        confidence = positive_norm
+                    elif negative_norm >= positive_norm and negative_norm >= neutral_norm:
+                        sentiment = 'NEGATIVE'
+                        confidence = negative_norm
+                    else:
+                        sentiment = 'NEUTRAL'
+                        confidence = neutral_norm
+
+                    return {
+                        'model_name': 'huggingface',
+                        'sentiment': sentiment,
+                        'confidence': round(float(confidence), 3),
+                        'positive_score': round(float(positive_norm), 3),
+                        'negative_score': round(float(negative_norm), 3),
+                        'neutral_score': round(float(neutral_norm), 3),
+                        'justification': f"HuggingFace model predicted {sentiment} with confidence {round(float(confidence),3)}"
+                    }        except Exception as e:
+            # If the hosted Inference API fails (e.g., 410 or permission),
+            # attempt a local fallback using transformers + a RoBERTa model.
+            error_msg = str(e)
+            try:
+                # Lazy import to avoid heavy deps unless needed
+                from transformers import pipeline
+
+                # Use the Cardiff NLP RoBERTa sentiment model
+                nlp = pipeline("sentiment-analysis", model="cardiffnlp/twitter-roberta-base-sentiment")
+                results = nlp(text[:512])
+                # results is typically [{'label': 'LABEL_2', 'score': 0.9876}]
+                if results and isinstance(results, list):
+                    r = results[0]
+                    label = r.get("label", "")
+                    score = float(r.get("score", 0.0) or 0.0)
+
+                    # Map CARDIFF labels to POS/NEU/NEG
+                    label_map = {
+                        "LABEL_0": "NEGATIVE",
+                        "LABEL_1": "NEUTRAL",
+                        "LABEL_2": "POSITIVE",
+                        "NEGATIVE": "NEGATIVE",
+                        "NEUTRAL": "NEUTRAL",
+                        "POSITIVE": "POSITIVE",
+                    }
+                    # If label is unknown, mark as UNKNOWN so we don't forcibly treat it as NEUTRAL
+                    sent = label_map.get(label.upper(), "UNKNOWN")
+                    pos = score if sent == "POSITIVE" else 0.0
+                    neg = score if sent == "NEGATIVE" else 0.0
+                    neu = score if sent == "NEUTRAL" else 0.0
+
+                    total = pos + neg + neu
+                    if total <= 0:
+                        return {
+                            "model_name": "huggingface_local",
+                            "sentiment": None,
+                            "confidence": 0.0,
+                            "positive_score": 0.0,
+                            "negative_score": 0.0,
+                            "neutral_score": 0.0,
+                            "error": error_msg + " | local pipeline returned no scores",
+                            "justification": "Local transformers returned no usable scores"
+                        }
+
+                    pos_n = pos / total
+                    neg_n = neg / total
+                    neu_n = neu / total
+
+                    # Determine label by highest normalized score
+                    if pos_n >= neg_n and pos_n >= neu_n:
+                        sentiment = "POSITIVE"
+                        confidence = pos_n
+                    elif neg_n >= pos_n and neg_n >= neu_n:
+                        sentiment = "NEGATIVE"
+                        confidence = neg_n
+                    else:
+                        sentiment = "NEUTRAL"
+                        confidence = neu_n
+
+                    return {
+                        "model_name": "huggingface_local",
+                        "sentiment": sentiment,
+                        "confidence": round(float(confidence), 3),
+                        "positive_score": round(float(pos_n), 3),
+                        "negative_score": round(float(neg_n), 3),
+                        "neutral_score": round(float(neu_n), 3),
+                        "justification": f"Local transformers predicted {sentiment} with confidence {round(float(confidence),3)}",
+                        "note": "Used local transformers pipeline",
+                    }
+            except Exception as ie:
+                # If local fallback also fails, return structured fallback with error details
+                return {
+                    "model_name": "huggingface",
+                    "sentiment": None,
+                    "confidence": 0.0,
+                    "positive_score": 0.0,
+                    "negative_score": 0.0,
+                    "neutral_score": 0.0,
+                    "error": error_msg + " | local fallback error: " + str(ie),
+                    "justification": "Error in HuggingFace inference; fallback used"
+                }
+    
+    # Default return: indicate missing sentiment rather than forcing NEUTRAL
+    return {
+        "model_name": "huggingface",
+        "sentiment": None,
+        "confidence": 0.0,
+        "positive_score": 0.0,
+        "negative_score": 0.0,
+        "neutral_score": 0.0,
+        "justification": "No inference result available"
+    }

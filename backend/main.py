@@ -349,6 +349,70 @@ async def get_ai_summary(topic_id: int, db: Session = Depends(get_db)):
     return result
 
 
+@app.get("/api/topics/{topic_id}/ai-synthesis")
+async def get_ai_synthesis(topic_id: int, db: Session = Depends(get_db)):
+    """
+    Generate comprehensive AI synthesis combining all analytics data using Gemini.
+    Returns executive summary, key trends, surprising findings, and recommendations.
+    """
+    topic = crud.get_topic(db, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    
+    videos = crud.get_videos_by_topic(db, topic_id)
+    articles = crud.get_articles_by_topic(db, topic_id)
+    
+    # Build comprehensive topic data
+    video_data = []
+    for video in videos:
+        # Get sentiments
+        sentiments_list = db.query(models.Sentiment).filter(models.Sentiment.video_id == video.id).all()
+        gemini_sentiment = None
+        hf_sentiment = None
+        emotions_json = None
+        
+        for sent in sentiments_list:
+            if sent.model_name == "gemini":
+                gemini_sentiment = sent.sentiment
+                emotions_json = sent.emotions_json
+            elif sent.model_name in ["huggingface", "vader"]:
+                hf_sentiment = sent.sentiment
+        
+        video_data.append({
+            "title": video.title,
+            "view_count": video.view_count,
+            "like_count": video.like_count,
+            "impact_score": video.impact_score,
+            "gemini_sentiment": gemini_sentiment,
+            "hf_sentiment": hf_sentiment,
+            "emotions": emotions_json,
+            "channel": video.channel_name
+        })
+    
+    article_data = []
+    for article in articles:
+        article_data.append({
+            "title": article.title,
+            "source": article.source,
+            "published_at": article.published_at.isoformat() if article.published_at else None,
+            "relevance_score": article.relevance_score if hasattr(article, 'relevance_score') else 50
+        })
+    
+    # Prepare data for Gemini
+    topic_data = {
+        "topic_name": topic.topic_name,
+        "videos": video_data,
+        "articles": article_data,
+        "analysis_date": topic.last_analyzed_at.isoformat() if topic.last_analyzed_at else None
+    }
+    
+    # Call Gemini to generate synthesis
+    from . import gemini_service
+    synthesis = await gemini_service.generate_ai_synthesis(topic_data)
+    
+    return synthesis
+
+
 # DATABASE MANAGEMENT ENDPOINTS
 @app.get("/api/admin/database-stats")
 async def get_database_stats(db: Session = Depends(get_db)):

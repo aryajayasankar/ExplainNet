@@ -106,11 +106,11 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         # Step 5: Search and analyze news articles (both recent and historical)
         print(f"📰 Step 5: Searching news articles...")
         print(f"   - Fetching recent news (NewsAPI)...")
-        recent_articles = await news_service.search_articles(topic_name, max_results=15)
+        recent_articles = await news_service.search_articles(topic_name, max_results=2)
         print(f"   ✓ Found {len(recent_articles)} recent articles")
         
         print(f"   - Fetching historical news (Guardian)...")
-        historical_articles = await news_service.search_guardian_articles(topic_name, max_results=15)
+        historical_articles = await news_service.search_guardian_articles(topic_name, max_results=2)
         print(f"   ✓ Found {len(historical_articles)} historical articles\n")
         
         # Tag articles by source type: recent (NewsAPI) vs historical (Guardian)
@@ -163,6 +163,14 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
                 else:
                     print(f"   ⚠️  Article {idx} summary failed: {e}")
                     article_data["gemini_justification"] = f"Summary unavailable: {str(e)}"
+            
+            # Calculate relevance score (how closely article relates to topic)
+            try:
+                relevance = await gemini_service.calculate_news_relevance(topic_name, article_title)
+                article_data["relevance_score"] = relevance
+            except Exception as e:
+                print(f"   ⚠️  Relevance calculation failed for article {idx}: {e}")
+                article_data["relevance_score"] = 50  # Default middling score
             
             # Delay 6.5 seconds between articles (slightly over 6s for safety)
             # This ensures we stay under 10 requests/minute
@@ -248,7 +256,9 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         print(f"   Error type: {type(e).__name__}")
         import traceback
         print(f"   Full traceback:\n{traceback.format_exc()}")
-        print(f"{'#'*80}\n")
+        print(f"\n{'#'*80}\n")
+        # Rollback session before updating status
+        db.rollback()
         crud.update_topic_status(db, topic_id, "failed", str(e))
 
 
@@ -315,8 +325,13 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         
         if transcript_result["text"]:
             print(f"\n✓ Transcript available, creating database record...")
-            crud.create_transcript(db, transcript_result, db_video.id)
-            print(f"✓ Transcript saved to database")
+            try:
+                crud.create_transcript(db, transcript_result, db_video.id)
+                print(f"✓ Transcript saved to database")
+            except Exception as transcript_save_error:
+                print(f"✗ Error saving transcript: {transcript_save_error}")
+                db.rollback()
+                # Continue processing even if transcript save fails
             
             # Step 5: Analyze sentiment (both models)
             transcript_text = transcript_result["text"]
@@ -415,6 +430,8 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
                                 comment_data["gemini_sentiment"] = None
                                 comment_data["gemini_support"] = None
                                 comment_data["gemini_score"] = None
+                            # Small delay to avoid rate limiting
+                            await asyncio.sleep(0.5)
                         except Exception as gemini_err:
                             print(f"      ⚠️ Gemini failed for comment {idx}: {str(gemini_err)[:50]}")
                             comment_data["gemini_sentiment"] = None
@@ -485,4 +502,6 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         print(f"   Error type: {type(e).__name__}")
         import traceback
         print(f"   Traceback:\n{traceback.format_exc()}")
-        print(f"{'='*80}\n")
+        print(f"\n{'='*80}\n")
+        # Rollback the session to clear error state
+        db.rollback()

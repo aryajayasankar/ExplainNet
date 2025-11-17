@@ -1,8 +1,15 @@
 ﻿<div class="analysis-container" *ngIf="!loading && topic">
   <!-- Section A: Hero Header -->
   <header class="hero-header">
-    <div class="breadcrumb">
-      <a routerLink="/locker">Locker</a> / {{ topic.topic_name }}
+    <div class="header-top">
+      <button class="btn-back" routerLink="/locker">
+        <span class="back-icon">←</span>
+        <span class="back-text">Back</span>
+      </button>
+      
+      <button class="btn-delete-top" (click)="deleteTopic()">
+        <span class="delete-icon">🗑</span>
+      </button>
     </div>
     
     <h1 class="topic-title">{{ topic.topic_name }}</h1>
@@ -31,10 +38,6 @@
         <div class="stat-value">{{ topic.last_analyzed_at | date:'MMM d' }}</div>
         <div class="stat-label">Last Analyzed</div>
       </div>
-    </div>
-    
-    <div class="action-buttons">
-      <button class="btn-action btn-delete" (click)="deleteTopic()">Delete Topic</button>
     </div>
   </header>
 
@@ -74,6 +77,31 @@
         <h3>Overall Sentiment</h3>
         <div class="sentiment-large" [ngClass]="getSentimentClass(topic.overall_sentiment)">
           {{ topic.overall_sentiment || 'Analyzing...' }}
+          <span class="trend-indicator" [ngClass]="sentimentTrend">
+            <span *ngIf="sentimentTrend === 'up'">↑</span>
+            <span *ngIf="sentimentTrend === 'down'">↓</span>
+            <span *ngIf="sentimentTrend === 'stable'">→</span>
+          </span>
+        </div>
+        
+        <div class="confidence-section" *ngIf="overallConfidence > 0">
+          <div class="confidence-label">Confidence</div>
+          <div class="confidence-circle">
+            <svg viewBox="0 0 120 120" class="circular-progress">
+              <circle cx="60" cy="60" r="54" class="progress-bg"></circle>
+              <circle cx="60" cy="60" r="54" class="progress-fill" 
+                      [style.stroke-dashoffset]="339 - (339 * overallConfidence / 100)"></circle>
+            </svg>
+            <div class="confidence-value">{{ overallConfidence }}%</div>
+          </div>
+        </div>
+
+        <div class="dominant-emotion-badge" *ngIf="dominantEmotion">
+          <span class="emotion-icon">{{ getEmotionIcon(dominantEmotion.name) }}</span>
+          <span class="emotion-text">
+            <strong>{{ dominantEmotion.name | titlecase }}</strong>
+            <small>{{ dominantEmotion.percentage }}%</small>
+          </span>
         </div>
       </div>
       
@@ -84,7 +112,7 @@
         <div class="impact-badge">Impact: {{ topVideo.impact_score?.toFixed(1) }}</div>
       </div>
       
-      <div class="insight-card">
+      <div class="insight-card dark-mode">
         <h3>Sentiment Distribution</h3>
         <div class="sentiment-bars">
           <div class="bar-item">
@@ -92,6 +120,7 @@
             <div class="bar">
               <div class="bar-fill positive" [style.width.%]="(sentimentCounts.positive / videos.length) * 100"></div>
             </div>
+            <span class="bar-percentage">{{ ((sentimentCounts.positive / videos.length) * 100) | number:'1.0-0' }}%</span>
             <span class="bar-count">{{ sentimentCounts.positive }}</span>
           </div>
           <div class="bar-item">
@@ -99,6 +128,7 @@
             <div class="bar">
               <div class="bar-fill negative" [style.width.%]="(sentimentCounts.negative / videos.length) * 100"></div>
             </div>
+            <span class="bar-percentage">{{ ((sentimentCounts.negative / videos.length) * 100) | number:'1.0-0' }}%</span>
             <span class="bar-count">{{ sentimentCounts.negative }}</span>
           </div>
           <div class="bar-item">
@@ -106,8 +136,17 @@
             <div class="bar">
               <div class="bar-fill neutral" [style.width.%]="(sentimentCounts.neutral / videos.length) * 100"></div>
             </div>
+            <span class="bar-percentage">{{ ((sentimentCounts.neutral / videos.length) * 100) | number:'1.0-0' }}%</span>
             <span class="bar-count">{{ sentimentCounts.neutral }}</span>
           </div>
+        </div>
+        
+        <div class="sentiment-velocity" *ngIf="videos.length > 1">
+          <div class="velocity-label">Sentiment Velocity</div>
+          <div class="velocity-meter">
+            <div class="velocity-indicator" [ngClass]="sentimentTrend"></div>
+          </div>
+          <div class="velocity-text">{{ sentimentTrend | titlecase }}</div>
         </div>
       </div>
     </div>
@@ -115,13 +154,7 @@
   
     <!-- Section D: Video Rankings Table -->
     <section class="video-table-section">
-    <div class="table-header">
       <h2 class="section-title">Video Rankings</h2>
-      <input type="text" 
-             [(ngModel)]="searchTerm" 
-             placeholder="Search videos..." 
-             class="search-input">
-    </div>
     
     <div class="table-container">
       <table class="video-table">
@@ -172,6 +205,148 @@
       </div>
     </div>
   </section>
+
+  <!-- Video Analytics Dashboard -->
+  <section class="video-analytics-dashboard" *ngIf="videos.length > 0">
+    <h2 class="section-title">📊 Video Analytics Dashboard</h2>
+    
+    <div class="analytics-grid">
+      <!-- Chart 1: Impact Score Distribution (Pie) -->
+      <div class="analytics-card">
+        <h3 class="chart-title">Impact Score Distribution</h3>
+        <div class="chart-container">
+          <div class="impact-distribution">
+            <div class="impact-segment low" 
+                 [style.--percentage]="impactDistribution.low + '%'"
+                 [attr.data-count]="impactDistribution.lowCount">
+              <span class="segment-label">Low (0-2)</span>
+              <span class="segment-value">{{ impactDistribution.lowCount }}</span>
+            </div>
+            <div class="impact-segment medium" 
+                 [style.--percentage]="impactDistribution.medium + '%'"
+                 [attr.data-count]="impactDistribution.mediumCount">
+              <span class="segment-label">Medium (2-4)</span>
+              <span class="segment-value">{{ impactDistribution.mediumCount }}</span>
+            </div>
+            <div class="impact-segment high" 
+                 [style.--percentage]="impactDistribution.high + '%'"
+                 [attr.data-count]="impactDistribution.highCount">
+              <span class="segment-label">High (4-5)</span>
+              <span class="segment-value">{{ impactDistribution.highCount }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart 2: Sentiment vs Views (Scatter) -->
+      <div class="analytics-card">
+        <h3 class="chart-title">Sentiment vs Views</h3>
+        <div class="chart-container">
+          <div class="scatter-plot">
+            <div class="scatter-point" 
+                 *ngFor="let video of videos.slice(0, 10)"
+                 [style.left]="getScatterX(video.view_count) + '%'"
+                 [style.bottom]="getScatterY(video.overall_sentiment) + '%'"
+                 [ngClass]="getSentimentClass(video.overall_sentiment)"
+                 [attr.data-impact]="video.impact_score"
+                 [title]="video.title">
+            </div>
+            <div class="axis-label x-axis">Views</div>
+            <div class="axis-label y-axis">Sentiment</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart 3: Top 5 Videos by Engagement -->
+      <div class="analytics-card">
+        <h3 class="chart-title">Top 5 by Engagement</h3>
+        <div class="chart-container">
+          <div class="engagement-bars">
+            <div class="engagement-item" *ngFor="let video of topEngagementVideos">
+              <div class="video-label">{{ video.title | slice:0:25 }}...</div>
+              <div class="engagement-bar-container">
+                <div class="engagement-bar" [style.width.%]="video.engagementPercentage">
+                  <span class="engagement-value">{{ video.engagementRatio }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart 4: Emotion Timeline -->
+      <div class="analytics-card">
+        <h3 class="chart-title">Emotion Timeline</h3>
+        <div class="chart-container">
+          <div class="emotion-timeline">
+            <div class="timeline-line joy" [style.--points]="getEmotionPoints('joy')"></div>
+            <div class="timeline-line sadness" [style.--points]="getEmotionPoints('sadness')"></div>
+            <div class="timeline-line anger" [style.--points]="getEmotionPoints('anger')"></div>
+            <div class="timeline-line fear" [style.--points]="getEmotionPoints('fear')"></div>
+            <div class="timeline-line surprise" [style.--points]="getEmotionPoints('surprise')"></div>
+            <div class="timeline-line disgust" [style.--points]="getEmotionPoints('disgust')"></div>
+            <div class="emotion-legend">
+              <span class="legend-item joy">Joy</span>
+              <span class="legend-item sadness">Sadness</span>
+              <span class="legend-item anger">Anger</span>
+              <span class="legend-item fear">Fear</span>
+              <span class="legend-item surprise">Surprise</span>
+              <span class="legend-item disgust">Disgust</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart 5: View Count Distribution -->
+      <div class="analytics-card">
+        <h3 class="chart-title">View Count Distribution</h3>
+        <div class="chart-container">
+          <div class="histogram">
+            <div class="histogram-bar" 
+                 *ngFor="let bucket of viewDistribution"
+                 [style.height.%]="bucket.percentage"
+                 [title]="bucket.range + ': ' + bucket.count + ' videos'">
+              <span class="bar-count">{{ bucket.count }}</span>
+              <span class="bar-label">{{ bucket.label }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart 6: Impact Score Trend -->
+      <div class="analytics-card">
+        <h3 class="chart-title">Impact Score Trend</h3>
+        <div class="chart-container">
+          <div class="trend-chart">
+            <svg viewBox="0 0 400 200" class="trend-svg">
+              <defs>
+                <linearGradient id="trendGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" style="stop-color:#C147E9;stop-opacity:0.5" />
+                  <stop offset="100%" style="stop-color:#C147E9;stop-opacity:0.1" />
+                </linearGradient>
+              </defs>
+              <polyline 
+                [attr.points]="impactTrendPoints" 
+                fill="url(#trendGradient)" 
+                stroke="#C147E9" 
+                stroke-width="3">
+              </polyline>
+              <polyline 
+                [attr.points]="impactTrendLine" 
+                fill="none" 
+                stroke="#C147E9" 
+                stroke-width="3">
+              </polyline>
+            </svg>
+            <div class="trend-stats">
+              <span class="trend-stat">Avg: {{ averageImpact | number:'1.1-1' }}</span>
+              <span class="trend-stat">Max: {{ maxImpact | number:'1.1-1' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
   </div>
 
   <!-- NEWS TAB CONTENT -->
@@ -183,8 +358,9 @@
         <div class="article-card" *ngFor="let article of articles">
           <div class="article-header">
             <span class="article-source">{{ article.source }}</span>
-            <span class="sentiment-badge" [ngClass]="getSentimentClass(article.hf_sentiment)">
-              {{ article.hf_sentiment || 'N/A' }}
+            <span class="relevance-badge" *ngIf="article.relevance_score !== null && article.relevance_score !== undefined">
+              <span class="relevance-icon">✨</span>
+              {{ article.relevance_score }}% Relevant
             </span>
           </div>
           
@@ -200,7 +376,7 @@
           </div>
               <div class="article-justifications">
                 <p *ngIf="article.hf_justification">
-                  <strong>HF:</strong>
+                  <strong>VADER:</strong>
                   <span *ngIf="!isArticleExpanded(article.id)">
                     {{ article.hf_justification | slice:0:200 }}
                     <span *ngIf="article.hf_justification.length > 200">... <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show more</a></span>
@@ -220,8 +396,6 @@
                     {{ article.gemini_justification }} <a href="#" (click)="toggleArticleExpand(article.id, $event)">Show less</a>
                   </span>
                 </p>
-
-                <p *ngIf="article.gemini_sarcasm_score !== undefined"><strong>Sarcasm:</strong> {{ (article.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</p>
               </div>
         </div>
       </div>
@@ -229,76 +403,236 @@
       <div class="empty-state" *ngIf="articles.length === 0">
         <p>No news articles found</p>
       </div>
-    </section>
-  </div>
 
-  <!-- AI ANALYSIS TAB CONTENT -->
-  <div *ngIf="activeTab === 'ai'" class="ai-tab">
-    <section class="ai-summary-section" *ngIf="aiSummary">
-      <h2 class="section-title">AI-Generated Analysis</h2>
-      
-      <div class="summary-grid">
-        <div class="summary-card">
-          <h3>📊 Overview</h3>
-          <ul class="insights-list">
-            <li *ngFor="let insight of aiSummary.key_insights">{{ insight }}</li>
-          </ul>
-        </div>
+      <!-- News Timeline Dashboard -->
+      <section class="news-timeline-dashboard" *ngIf="articles.length > 0">
+        <h2 class="section-title">📰 News Timeline</h2>
         
-        <div class="summary-card">
-          <h3>🎭 Sentiment Comparison</h3>
-          <div class="comparison">
-            <div class="comparison-col">
-              <h4>Videos</h4>
-              <div class="sentiment-mini">
-                <div class="mini-bar">
-                  <span>👍 {{ aiSummary.video_sentiment_distribution.positive }}</span>
-                </div>
-                <div class="mini-bar">
-                  <span>👎 {{ aiSummary.video_sentiment_distribution.negative }}</span>
-                </div>
-                <div class="mini-bar">
-                  <span>😐 {{ aiSummary.video_sentiment_distribution.neutral }}</span>
-                </div>
-              </div>
+        <div class="timeline-controls">
+          <div class="control-group">
+            <label>Sort Order:</label>
+            <div class="btn-group">
+              <button 
+                [class.active]="timelineSortOrder === 'asc'" 
+                (click)="timelineSortOrder = 'asc'"
+                class="btn-sort">
+                ⬆ Oldest First
+              </button>
+              <button 
+                [class.active]="timelineSortOrder === 'desc'" 
+                (click)="timelineSortOrder = 'desc'"
+                class="btn-sort">
+                ⬇ Newest First
+              </button>
             </div>
-            
-            <div class="comparison-col">
-              <h4>News</h4>
-              <div class="sentiment-mini">
-                <div class="mini-bar">
-                  <span>👍 {{ aiSummary.news_sentiment_distribution.positive }}</span>
-                </div>
-                <div class="mini-bar">
-                  <span>👎 {{ aiSummary.news_sentiment_distribution.negative }}</span>
-                </div>
-                <div class="mini-bar">
-                  <span>😐 {{ aiSummary.news_sentiment_distribution.neutral }}</span>
+          </div>
+        </div>
+
+        <div class="timeline-chart">
+          <div class="timeline-bar" *ngFor="let article of sortedArticles; let i = index">
+            <div class="timeline-marker" [style.left]="getTimelinePosition(article.published_at) + '%'">
+              <div class="marker-dot" [style.background]="getRelevanceColor(article.relevance_score)"></div>
+              <div class="marker-tooltip">
+                <div class="tooltip-title">{{ article.title | slice:0:50 }}...</div>
+                <div class="tooltip-meta">
+                  <span>{{ formatDate(article.published_at) }}</span>
+                  <span *ngIf="article.relevance_score">{{ article.relevance_score }}% relevant</span>
                 </div>
               </div>
             </div>
           </div>
           
-          <div class="alignment-status" [class.aligned]="aiSummary.sentiment_agreement.aligned">
-            <strong>Sentiment Alignment:</strong> 
-            {{ aiSummary.sentiment_agreement.aligned ? 'ALIGNED ✓' : 'DIVERGENT ⚠' }}
+          <div class="timeline-axis">
+            <span class="axis-label start">{{ timelineStartDate }}</span>
+            <span class="axis-label end">{{ timelineEndDate }}</span>
           </div>
         </div>
+
+        <div class="timeline-summary">
+          <div class="summary-stat">
+            <span class="stat-value">{{ articles.length }}</span>
+            <span class="stat-label">Total Articles</span>
+          </div>
+          <div class="summary-stat">
+            <span class="stat-value">{{ averageRelevance | number:'1.0-0' }}%</span>
+            <span class="stat-label">Avg Relevance</span>
+          </div>
+          <div class="summary-stat">
+            <span class="stat-value">{{ articleDateRange }}</span>
+            <span class="stat-label">Date Range</span>
+          </div>
+        </div>
+      </section>
+    </section>
+  </div>
+
+  <!-- AI ANALYSIS TAB CONTENT -->
+  <div *ngIf="activeTab === 'ai'" class="ai-tab">
+    <section class="ai-synthesis-dashboard" *ngIf="aiSummary">
+      
+      <!-- Hero Card with Executive Summary -->
+      <div class="hero-card">
+        <div class="hero-header">
+          <h2 class="hero-title">🤖 AI-Powered Comprehensive Analysis</h2>
+          <div class="models-used">
+            <span class="model-badge vader">📊 VADER</span>
+            <span class="model-badge gemini">✨ Gemini AI</span>
+          </div>
+        </div>
+        <div class="executive-summary">
+          <h3>Executive Summary</h3>
+          <p>{{ aiSummary.executive_summary }}</p>
+        </div>
+      </div>
+
+      <!-- Key Metrics Row -->
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-icon">🎥</div>
+          <div class="metric-value">{{ videos.length }}</div>
+          <div class="metric-label">Videos Analyzed</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">{{ getSentimentIcon(topic.overall_sentiment) }}</div>
+          <div class="metric-value">{{ topic.overall_sentiment | titlecase }}</div>
+          <div class="metric-label">Dominant Sentiment</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">⚡</div>
+          <div class="metric-value">{{ averageImpact | number:'1.1-1' }}</div>
+          <div class="metric-label">Avg Impact Score</div>
+        </div>
+        <div class="metric-card" *ngIf="aiSummary.dominant_emotion">
+          <div class="metric-icon">{{ getEmotionIcon(aiSummary.dominant_emotion) }}</div>
+          <div class="metric-value">{{ aiSummary.dominant_emotion | titlecase }}</div>
+          <div class="metric-label">Top Emotion</div>
+        </div>
+      </div>
+
+      <!-- Combined Analytics Section -->
+      <div class="combined-analytics">
+        <h3 class="section-heading">📈 Combined Analytics</h3>
         
-        <div class="summary-card">
-          <h3>🏷️ Top Entities</h3>
-          <div class="entities-list">
-            <span class="entity-tag" *ngFor="let entity of aiSummary.top_entities">
-              {{ entity.text }} ({{ entity.count }})
-            </span>
+        <div class="analytics-grid-ai">
+          <!-- Chart 1: Content Quality Assessment -->
+          <div class="analytics-card-ai glass">
+            <h4>Content Quality</h4>
+            <div class="quality-meter">
+              <div class="quality-bar" [style.width]="getQualityPercentage() + '%'">
+                <span class="quality-label">{{ aiSummary.content_quality_assessment }}</span>
+              </div>
+            </div>
+            <div class="quality-details">
+              <div class="detail-item">
+                <span class="detail-label">Videos:</span>
+                <span class="detail-value">{{ videos.length }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">News:</span>
+                <span class="detail-value">{{ articles.length }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Avg Relevance:</span>
+                <span class="detail-value">{{ averageRelevance | number:'1.0-0' }}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart 2: Sentiment Comparison -->
+          <div class="analytics-card-ai glass">
+            <h4>Sentiment Distribution</h4>
+            <div class="sentiment-pie">
+              <div class="pie-segment positive" [style.--percentage]="sentimentCounts.positive / videos.length * 100 + '%'">
+                <span class="segment-count">{{ sentimentCounts.positive }}</span>
+              </div>
+              <div class="pie-segment negative" [style.--percentage]="sentimentCounts.negative / videos.length * 100 + '%'">
+                <span class="segment-count">{{ sentimentCounts.negative }}</span>
+              </div>
+              <div class="pie-segment neutral" [style.--percentage]="sentimentCounts.neutral / videos.length * 100 + '%'">
+                <span class="segment-count">{{ sentimentCounts.neutral }}</span>
+              </div>
+            </div>
+            <div class="sentiment-legend-ai">
+              <div class="legend-item-ai positive">Positive: {{ sentimentCounts.positive }}</div>
+              <div class="legend-item-ai negative">Negative: {{ sentimentCounts.negative }}</div>
+              <div class="legend-item-ai neutral">Neutral: {{ sentimentCounts.neutral }}</div>
+            </div>
+          </div>
+
+          <!-- Chart 3: Impact vs Relevance -->
+          <div class="analytics-card-ai glass">
+            <h4>Impact vs Relevance</h4>
+            <div class="correlation-chart">
+              <div class="correlation-bar">
+                <div class="bar-section impact" [style.width]="(averageImpact / 5 * 100) + '%'">
+                  <span>Impact: {{ averageImpact | number:'1.1-1' }}</span>
+                </div>
+              </div>
+              <div class="correlation-bar">
+                <div class="bar-section relevance" [style.width]="averageRelevance + '%'">
+                  <span>Relevance: {{ averageRelevance | number:'1.0-0' }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chart 4: Emotion Heatmap -->
+          <div class="analytics-card-ai glass">
+            <h4>Emotion Heatmap</h4>
+            <div class="emotion-heatmap">
+              <div class="heatmap-cell joy" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Joy</span>
+              </div>
+              <div class="heatmap-cell sadness" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Sadness</span>
+              </div>
+              <div class="heatmap-cell anger" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Anger</span>
+              </div>
+              <div class="heatmap-cell fear" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Fear</span>
+              </div>
+              <div class="heatmap-cell surprise" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Surprise</span>
+              </div>
+              <div class="heatmap-cell disgust" [style.opacity]="getRandomOpacity()">
+                <span class="cell-label">Disgust</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- AI Insights Panel -->
+      <div class="insights-panel">
+        <div class="insight-column">
+          <h3 class="insight-heading">🔍 Key Trends</h3>
+          <ul class="insight-list">
+            <li *ngFor="let trend of aiSummary.key_trends">{{ trend }}</li>
+          </ul>
+        </div>
+
+        <div class="insight-column">
+          <h3 class="insight-heading">💡 Surprising Findings</h3>
+          <ul class="insight-list">
+            <li *ngFor="let finding of aiSummary.surprising_findings">{{ finding }}</li>
+          </ul>
+        </div>
+
+        <div class="insight-column">
+          <h3 class="insight-heading">🎯 Recommendations</h3>
+          <ul class="insight-list">
+            <li *ngFor="let rec of aiSummary.recommendations">{{ rec }}</li>
+          </ul>
+        </div>
+      </div>
+
     </section>
     
     <div class="loading-container" *ngIf="!aiSummary">
-      <div class="spinner"></div>
-      <p>Generating AI analysis...</p>
+      <div class="loading-spinner"></div>
+      <p class="loading-title">Generating AI Synthesis</p>
+      <p class="loading-subtitle">Analyzing videos, sentiments, emotions, and news relevance...</p>
     </div>
   </div>
   <!-- End of AI Tab -->
@@ -349,7 +683,7 @@
         <h3>🎯 Sentiment Analysis</h3>
         <div class="sentiment-comparison" *ngIf="videoSentiments.length > 0">
           <div class="sentiment-model" *ngFor="let sentiment of videoSentiments">
-            <h4>{{ sentiment.model_name === 'huggingface' ? '🤗 HuggingFace Analysis' : '✨ Gemini Analysis' }}</h4>
+            <h4>{{ sentiment.model_name === 'vader' ? '📊 VADER ANALYSIS' : sentiment.model_name === 'huggingface' ? '📊 VADER ANALYSIS' : '✨ GEMINI ANALYSIS' }}</h4>
             
             <div class="sentiment-result" [ngClass]="(sentiment.sentiment || '').toLowerCase()">
               {{ sentiment.sentiment }}
@@ -400,12 +734,20 @@
                 </span>
               </p>
 
-              <div class="sarcasm-row" *ngIf="sentiment.gemini_sarcasm_score !== undefined">
-                <div class="sarcasm-label">Sarcasm score</div>
-                <div class="sarcasm-bar">
-                  <div class="sarcasm-fill" [style.width.%]="(sentiment.gemini_sarcasm_score * 100)"></div>
+              <!-- Emotions Section (only for Gemini) -->
+              <div class="emotions-section" *ngIf="sentiment.emotions_json && (sentiment.model_name || '').toLowerCase().includes('gemini')">
+                <h5>Emotions Detected</h5>
+                <div class="emotion-bars">
+                  <div class="emotion-bar" *ngFor="let emotion of parseEmotions(sentiment.emotions_json)">
+                    <div class="emotion-label">{{ emotion.name | titlecase }}</div>
+                    <div class="emotion-meter">
+                      <div class="emotion-fill" 
+                           [style.width.%]="emotion.value" 
+                           [ngClass]="'emotion-' + emotion.name"></div>
+                    </div>
+                    <div class="emotion-value">{{ emotion.value }}%</div>
+                  </div>
                 </div>
-                <div class="sarcasm-value">{{ (sentiment.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</div>
               </div>
             </div>
           </div>
@@ -431,8 +773,8 @@
               <div class="comment-text">{{ comment.text }}</div>
               
               <div class="comment-sentiments">
-                <div class="sentiment-badge hf" [ngClass]="comment.hf_sentiment?.toLowerCase()">
-                  <span class="model-label">🤗 HuggingFace</span>
+                <div class="sentiment-badge vader" [ngClass]="comment.hf_sentiment?.toLowerCase()">
+                  <span class="model-label">📊 VADER</span>
                   <span class="sentiment-value">{{ comment.hf_sentiment || 'N/A' }}</span>
                 </div>
                 <div class="sentiment-badge gemini" [ngClass]="comment.gemini_sentiment?.toLowerCase()">
@@ -443,7 +785,7 @@
               
               <div class="comment-justifications">
                 <p class="justification" *ngIf="comment.hf_justification">
-                  <strong>HF:</strong>
+                  <strong>VADER:</strong>
                   <span *ngIf="!isCommentExpanded(comment.id)">
                     {{ comment.hf_justification | slice:0:180 }}
                     <span *ngIf="comment.hf_justification.length > 180">... <a href="#" (click)="toggleCommentExpand(comment.id, $event)">Show more</a></span>
@@ -464,7 +806,17 @@
                   </span>
                 </p>
 
-                <p class="justification" *ngIf="comment.gemini_sarcasm_score !== undefined"><strong>Sarcasm:</strong> {{ (comment.gemini_sarcasm_score * 100) | number:'1.0-1' }}%</p>
+                <div class="comment-emotions" *ngIf="comment.gemini_emotions_json">
+                  <strong>Emotions:</strong>
+                  <div class="emotion-mini-bars">
+                    <ng-container *ngFor="let emotion of parseEmotions(comment.gemini_emotions_json)">
+                      <span class="emotion-mini" *ngIf="emotion.value > 10">
+                        <span class="emotion-mini-name">{{ emotion.name }}</span>
+                        <span class="emotion-mini-value">{{ emotion.value }}%</span>
+                      </span>
+                    </ng-container>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

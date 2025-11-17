@@ -1,0 +1,97 @@
+<div class="locker-container">
+  <header class="locker-header">
+    <h1 class="title">ExplainNet Locker</h1>
+    <p class="subtitle">Your Topic Analysis Archive</p>
+    <button class="btn-create" (click)="openCreateModal()">
+      <span class="plus-icon">+</span> New Analysis
+    </button>
+  </header>
+
+  <div class="topics-grid" *ngIf="!loading && topics.length > 0">
+    <div class="topic-card" 
+         *ngFor="let topic of topics" 
+         [routerLink]="topic.analysis_status === 'completed' ? ['/analysis', topic.id] : null"
+         [class.clickable]="topic.analysis_status === 'completed'">
+      
+      <div class="card-header">
+        <h3 class="topic-name">{{ topic.topic_name }}</h3>
+        <button class="btn-delete" (click)="deleteTopic(topic.id, $event)">×</button>
+      </div>
+
+      <!-- Status badge for non-completed topics -->
+      <div class="status-badge" *ngIf="topic.analysis_status !== 'completed'" [ngClass]="getStatusClass(topic.analysis_status)">
+        <span class="status-icon">{{ getStatusIcon(topic.analysis_status) }}</span>
+        <span class="status-text">{{ topic.analysis_status | titlecase }}</span>
+      </div>
+
+      <div class="card-stats" *ngIf="topic.analysis_status === 'completed'">
+        <div class="completion-pill">
+          <span class="pill-icon">✓</span>
+          <span class="pill-text">Completed</span>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.total_videos }}</div>
+          <div class="stat-label">Videos</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.total_articles }}</div>
+          <div class="stat-label">Articles</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.overall_impact_score ? topic.overall_impact_score.toFixed(1) : '—' }}</div>
+          <div class="stat-label">Avg Impact</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value sentiment" [ngClass]="'sentiment-' + topic.overall_sentiment">
+            {{ topic.overall_sentiment || '—' }}
+          </div>
+          <div class="stat-label">Sentiment</div>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <span class="date">{{ topic.created_at | date:'MMM d, y' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="empty-state" *ngIf="!loading && topics.length === 0">
+    <div class="empty-icon">📊</div>
+    <h2>No Topics Yet</h2>
+    <p>Create your first topic analysis to get started</p>
+    <button class="btn-create-large" (click)="openCreateModal()">
+      Create New Analysis
+    </button>
+  </div>
+
+  <div class="loading-state" *ngIf="loading">
+    <div class="spinner"></div>
+    <p>Loading topics...</p>
+  </div>
+</div>
+
+<!-- Create Modal -->
+<div class="modal-overlay" *ngIf="showCreateModal" (click)="closeCreateModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <h2>Create New Analysis</h2>
+    <p class="modal-subtitle">Enter a topic to analyze (e.g., "Climate Change", "AI Ethics")</p>
+    
+    <input 
+      type="text" 
+      class="topic-input"
+      [(ngModel)]="newTopicName"
+      placeholder="Enter topic name..."
+      (keyup.enter)="createTopic()"
+      [disabled]="creating"
+      autofocus>
+    
+    <div class="modal-actions">
+      <button class="btn-cancel" (click)="closeCreateModal()" [disabled]="creating">
+        Cancel
+      </button>
+      <button class="btn-submit" (click)="createTopic()" [disabled]="!newTopicName.trim() || creating">
+        {{ creating ? 'Creating...' : 'Create & Analyze' }}
+      </button>
+    </div>
+  </div>
+</div>

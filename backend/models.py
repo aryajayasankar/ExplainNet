@@ -112,6 +112,7 @@ class Sentiment(Base):
     
     # Gemini-specific fields
     emotional_tone = Column(String(100), nullable=True)
+    emotions_json = Column(Text, nullable=True)  # JSON string: {"joy": 0-100, "sadness": 0-100, ...}
     objectivity_score = Column(Float, nullable=True)
     bias_level = Column(String(50), nullable=True)
     bias_type = Column(String(100), nullable=True)
@@ -152,6 +153,8 @@ class Comment(Base):
     gemini_score = Column(Float, nullable=True)
     gemini_justification = Column(Text, nullable=True)
     gemini_sarcasm_score = Column(Float, nullable=True)
+    gemini_emotions_json = Column(Text, nullable=True)  # JSON string: {"joy": 0-100, ...}
+    hf_emotions_json = Column(Text, nullable=True)  # JSON string for VADER emotions if needed
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -193,6 +196,9 @@ class NewsArticle(Base):
     
     # NEW: Impact Score
     impact_score = Column(Float, nullable=True)
+    
+    # NEW: Relevance Score (how closely article relates to topic, 0-100)
+    relevance_score = Column(Integer, nullable=True)
     
     # NEW: Entity extraction (stored as JSON string)
     entities_json = Column(Text, nullable=True)

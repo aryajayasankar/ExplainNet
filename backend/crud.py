@@ -86,6 +86,18 @@ def update_video_scores(db: Session, video_id: int, scores: dict):
 def create_transcript(db: Session, transcript_data: dict, video_id: int):
     # Remove fields not in the Transcript model (like 'source', 'status', 'duration')
     transcript_data_for_db = {k: v for k, v in transcript_data.items() if k not in ['source', 'status', 'duration']}
+    
+    # Check if transcript already exists for this video
+    existing = db.query(models.Transcript).filter(models.Transcript.video_id == video_id).first()
+    if existing:
+        # Update existing transcript
+        for key, value in transcript_data_for_db.items():
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+    
+    # Create new transcript
     db_transcript = models.Transcript(video_id=video_id, **transcript_data_for_db)
     db.add(db_transcript)
     db.commit()
@@ -138,6 +150,21 @@ def create_comment(db: Session, comment_data: dict, video_id: int):
     # Only include allowed columns to avoid unexpected kwargs
     allowed_cols = {c.name for c in models.Comment.__table__.columns}
     filtered = {k: v for k, v in comment_data.items() if k in allowed_cols}
+    
+    # Check if comment already exists (by comment_id)
+    comment_id = filtered.get('comment_id')
+    if comment_id:
+        existing = db.query(models.Comment).filter(models.Comment.comment_id == comment_id).first()
+        if existing:
+            # Update existing comment
+            for key, value in filtered.items():
+                if key != 'comment_id':  # Don't update the ID itself
+                    setattr(existing, key, value)
+            db.commit()
+            db.refresh(existing)
+            return existing
+    
+    # Create new comment
     db_comment = models.Comment(video_id=video_id, **filtered)
     db.add(db_comment)
     db.commit()
