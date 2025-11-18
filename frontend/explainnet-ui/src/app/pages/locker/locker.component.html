@@ -1,326 +1,96 @@
 <div class="locker-container">
-  <!-- Theme Toggle Button -->
-  <button class="theme-toggle" (click)="toggleTheme()" [attr.aria-label]="'Switch to ' + (isDarkMode ? 'light' : 'dark') + ' mode'">
-    <span class="theme-icon" *ngIf="!isDarkMode">🌙</span>
-    <span class="theme-icon" *ngIf="isDarkMode">☀️</span>
-  </button>
-
-  <!-- Hero Section with Animated Background -->
-  <header class="hero-section">
-    <div class="hero-background">
-      <div class="gradient-orb orb-1"></div>
-      <div class="gradient-orb orb-2"></div>
-      <div class="gradient-orb orb-3"></div>
-    </div>
-    
-    <div class="hero-content">
-      <h1 class="hero-title">
-        <span class="title-main">ExplainNet</span>
-        <span class="title-subtitle">Neural Dashboard</span>
-      </h1>
-      <p class="hero-description">Intelligent Topic Analysis • Powered by AI</p>
-      
-      <!-- Stats Summary Bar -->
-      <div class="stats-summary" *ngIf="topics.length > 0">
-        <div class="stat-item">
-          <span class="stat-value">{{ topics.length }}</span>
-          <span class="stat-label">Topics</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat-item">
-          <span class="stat-value">{{ getTotalVideos() }}</span>
-          <span class="stat-label">Videos</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat-item">
-          <span class="stat-value">{{ getTotalArticles() }}</span>
-          <span class="stat-label">Articles</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat-item">
-          <span class="stat-value">{{ getAvgImpact() }}</span>
-          <span class="stat-label">Avg Impact</span>
-        </div>
-      </div>
-    </div>
+  <header class="locker-header">
+    <h1 class="title">ExplainNet Locker</h1>
+    <p class="subtitle">Your Topic Analysis Archive</p>
+    <button class="btn-create" (click)="openCreateModal()">
+      <span class="plus-icon">+</span> New Analysis
+    </button>
   </header>
 
-  <!-- Quick Actions Bar -->
-  <div class="actions-bar">
-    <button class="btn-primary btn-create" (click)="openCreateModal()">
-      <span class="btn-icon">✨</span>
-      <span class="btn-text">New Analysis</span>
-      <span class="btn-shine"></span>
-    </button>
-    
-    <div class="search-filter-group">
-      <div class="search-box">
-        <span class="search-icon">🔍</span>
-        <input 
-          type="text" 
-          class="search-input"
-          [(ngModel)]="searchTerm"
-          placeholder="Search topics..."
-          (input)="onSearchChange()">
-        <button class="clear-search" *ngIf="searchTerm" (click)="clearSearch()">×</button>
-      </div>
-      
-      <div class="filter-dropdown">
-        <button class="btn-filter" (click)="toggleFilters()">
-          <span class="filter-icon">⚙️</span>
-          <span class="filter-text">Filters</span>
-          <span class="filter-badge" *ngIf="activeFiltersCount > 0">{{ activeFiltersCount }}</span>
-        </button>
-        
-        <!-- Filter Panel -->
-        <div class="filter-panel glass" *ngIf="showFilters">
-          <div class="filter-section">
-            <h4 class="filter-title">Status</h4>
-            <div class="filter-options">
-              <label class="filter-option" *ngFor="let status of statusOptions">
-                <input type="checkbox" [value]="status" [(ngModel)]="filters.status[status]">
-                <span class="filter-label">{{ status | titlecase }}</span>
-              </label>
-            </div>
-          </div>
-          
-          <div class="filter-section">
-            <h4 class="filter-title">Sentiment</h4>
-            <div class="filter-options">
-              <label class="filter-option" *ngFor="let sentiment of sentimentOptions">
-                <input type="checkbox" [value]="sentiment" [(ngModel)]="filters.sentiment[sentiment]">
-                <span class="filter-label">{{ sentiment | titlecase }}</span>
-              </label>
-            </div>
-          </div>
-          
-          <div class="filter-actions">
-            <button class="btn-reset" (click)="resetFilters()">Reset</button>
-            <button class="btn-apply" (click)="applyFilters()">Apply</button>
-          </div>
-        </div>
-      </div>
-      
-      <div class="sort-dropdown">
-        <button class="btn-sort" (click)="toggleSort()">
-          <span class="sort-icon">{{ sortDirection === 'desc' ? '↓' : '↑' }}</span>
-          <span class="sort-text">{{ getSortLabel() }}</span>
-        </button>
-        
-        <div class="sort-panel glass" *ngIf="showSort">
-          <button 
-            class="sort-option" 
-            *ngFor="let option of sortOptions"
-            [class.active]="sortBy === option.value"
-            (click)="setSortBy(option.value)">
-            <span class="sort-option-label">{{ option.label }}</span>
-            <span class="sort-option-icon" *ngIf="sortBy === option.value">✓</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Topics Grid - Bento Box Style -->
-  <div class="topics-grid" *ngIf="!loading && filteredTopics.length > 0">
-    <div class="topic-card glass" 
-         *ngFor="let topic of filteredTopics; let i = index" 
+  <div class="topics-grid" *ngIf="!loading && topics.length > 0">
+    <div class="topic-card" 
+         *ngFor="let topic of topics" 
          [routerLink]="topic.analysis_status === 'completed' ? ['/analysis', topic.id] : null"
-         [class.clickable]="topic.analysis_status === 'completed'"
-         [class.card-large]="i === 0"
-         [style.animation-delay]="i * 0.1 + 's'"
-         (mouseenter)="onCardHover($event)"
-         (mouseleave)="onCardLeave($event)"
-         (mousemove)="onCardMove($event)">
-         (mousemove)="onCardMove($event)">
-      
-      <div class="card-glow"></div>
+         [class.clickable]="topic.analysis_status === 'completed'">
       
       <div class="card-header">
-        <div class="topic-icon">{{ getTopicIcon(topic.overall_sentiment) }}</div>
         <h3 class="topic-name">{{ topic.topic_name }}</h3>
-        <button class="btn-delete" (click)="deleteTopic(topic.id, $event)" title="Delete topic">
-          <span class="delete-icon">🗑</span>
-        </button>
+        <button class="btn-delete" (click)="deleteTopic(topic.id, $event)">×</button>
       </div>
 
-      <!-- Status Badge for Non-Completed Topics -->
+      <!-- Status badge for non-completed topics -->
       <div class="status-badge" *ngIf="topic.analysis_status !== 'completed'" [ngClass]="getStatusClass(topic.analysis_status)">
         <span class="status-icon">{{ getStatusIcon(topic.analysis_status) }}</span>
         <span class="status-text">{{ topic.analysis_status | titlecase }}</span>
-        <div class="status-pulse" *ngIf="topic.analysis_status === 'processing'"></div>
       </div>
 
-      <!-- Stats Grid for Completed Topics -->
       <div class="card-stats" *ngIf="topic.analysis_status === 'completed'">
-        <div class="stat-mini">
-          <div class="stat-icon-mini">📹</div>
-          <div class="stat-content">
-            <div class="stat-value-mini">{{ topic.total_videos }}</div>
-            <div class="stat-label-mini">Videos</div>
-          </div>
+        <div class="completion-pill">
+          <span class="pill-icon">✓</span>
+          <span class="pill-text">Completed</span>
         </div>
-        
-        <div class="stat-mini">
-          <div class="stat-icon-mini">📰</div>
-          <div class="stat-content">
-            <div class="stat-value-mini">{{ topic.total_articles }}</div>
-            <div class="stat-label-mini">Articles</div>
-          </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.total_videos }}</div>
+          <div class="stat-label">Videos</div>
         </div>
-        
-        <div class="stat-mini">
-          <div class="stat-icon-mini">⚡</div>
-          <div class="stat-content">
-            <div class="stat-value-mini">{{ topic.overall_impact_score ? topic.overall_impact_score.toFixed(1) : '—' }}</div>
-            <div class="stat-label-mini">Impact</div>
-          </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.total_articles }}</div>
+          <div class="stat-label">Articles</div>
         </div>
-        
-        <div class="stat-mini">
-          <div class="stat-icon-mini">{{ getSentimentEmoji(topic.overall_sentiment) }}</div>
-          <div class="stat-content">
-            <div class="stat-value-mini sentiment" [ngClass]="'sentiment-' + topic.overall_sentiment">
-              {{ topic.overall_sentiment || '—' }}
-            </div>
-            <div class="stat-label-mini">Sentiment</div>
-          </div>
+        <div class="stat">
+          <div class="stat-value">{{ topic.overall_impact_score ? topic.overall_impact_score.toFixed(1) : '—' }}</div>
+          <div class="stat-label">Avg Impact</div>
         </div>
-      </div>
-
-      <!-- Mini Sparkline for Completed Topics -->
-      <div class="card-sparkline" *ngIf="topic.analysis_status === 'completed'">
-        <svg class="sparkline-svg" viewBox="0 0 100 30" preserveAspectRatio="none">
-          <polyline 
-            class="sparkline-line"
-            [attr.points]="getSparklinePoints(topic)"
-            fill="none"
-            stroke="url(#sparklineGradient)"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"/>
-          <defs>
-            <linearGradient id="sparklineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" style="stop-color:var(--color-primary);stop-opacity:1" />
-              <stop offset="100%" style="stop-color:var(--color-secondary);stop-opacity:1" />
-            </linearGradient>
-          </defs>
-        </svg>
-        <span class="sparkline-label">Activity</span>
+        <div class="stat">
+          <div class="stat-value sentiment" [ngClass]="'sentiment-' + topic.overall_sentiment">
+            {{ topic.overall_sentiment || '—' }}
+          </div>
+          <div class="stat-label">Sentiment</div>
+        </div>
       </div>
 
       <div class="card-footer">
-        <div class="footer-left">
-          <span class="date-badge">
-            <span class="date-icon">🕒</span>
-            <span class="date-text">{{ formatDate(topic.created_at) }}</span>
-          </span>
-        </div>
-        <div class="footer-right">
-          <span class="view-badge" *ngIf="topic.analysis_status === 'completed'">
-            View Details →
-          </span>
-        </div>
+        <span class="date">{{ topic.created_at | date:'MMM d, y' }}</span>
       </div>
     </div>
   </div>
 
-  <!-- Empty State -->
-  <div class="empty-state" *ngIf="!loading && filteredTopics.length === 0 && topics.length === 0">
-    <div class="empty-animation">
-      <div class="empty-circle"></div>
-      <div class="empty-circle"></div>
-      <div class="empty-circle"></div>
-    </div>
-    <h2 class="empty-title">No Topics Yet</h2>
-    <p class="empty-description">Create your first topic analysis to unlock powerful AI-driven insights</p>
-    <button class="btn-primary btn-create-large" (click)="openCreateModal()">
-      <span class="btn-icon">✨</span>
-      <span class="btn-text">Create First Analysis</span>
+  <div class="empty-state" *ngIf="!loading && topics.length === 0">
+    <div class="empty-icon">📊</div>
+    <h2>No Topics Yet</h2>
+    <p>Create your first topic analysis to get started</p>
+    <button class="btn-create-large" (click)="openCreateModal()">
+      Create New Analysis
     </button>
   </div>
 
-  <!-- No Results State -->
-  <div class="empty-state" *ngIf="!loading && filteredTopics.length === 0 && topics.length > 0">
-    <div class="empty-animation">
-      <span class="empty-icon">🔍</span>
-    </div>
-    <h2 class="empty-title">No Results Found</h2>
-    <p class="empty-description">Try adjusting your search or filters</p>
-    <button class="btn-secondary" (click)="clearFiltersAndSearch()">Clear All Filters</button>
-  </div>
-
-  <!-- Loading State -->
   <div class="loading-state" *ngIf="loading">
-    <div class="loading-animation">
-      <div class="loading-spinner">
-        <div class="spinner-ring"></div>
-        <div class="spinner-ring"></div>
-        <div class="spinner-ring"></div>
-      </div>
-    </div>
-    <h3 class="loading-title">Loading Topics</h3>
-    <p class="loading-description">Fetching your analyses...</p>
+    <div class="spinner"></div>
+    <p>Loading topics...</p>
   </div>
 </div>
 
 <!-- Create Modal -->
-<div class="modal-overlay glass-strong" *ngIf="showCreateModal" (click)="closeCreateModal()">
+<div class="modal-overlay" *ngIf="showCreateModal" (click)="closeCreateModal()">
   <div class="modal-content" (click)="$event.stopPropagation()">
-    <button class="modal-close" (click)="closeCreateModal()" aria-label="Close modal">×</button>
+    <h2>Create New Analysis</h2>
+    <p class="modal-subtitle">Enter a topic to analyze (e.g., "Climate Change", "AI Ethics")</p>
     
-    <div class="modal-header">
-      <div class="modal-icon">✨</div>
-      <h2 class="modal-title">Create New Analysis</h2>
-      <p class="modal-subtitle">Enter a topic to analyze with AI-powered insights</p>
-    </div>
-    
-    <div class="modal-body">
-      <div class="input-group">
-        <label class="input-label" for="topic-input">Topic Name</label>
-        <input 
-          id="topic-input"
-          type="text" 
-          class="topic-input"
-          [(ngModel)]="newTopicName"
-          placeholder="e.g., Climate Change, AI Ethics, Space Exploration..."
-          (keyup.enter)="createTopic()"
-          [disabled]="creating"
-          autofocus>
-        <span class="input-hint">Choose a specific topic for better results</span>
-      </div>
-      
-      <div class="analysis-preview" *ngIf="newTopicName.length > 2">
-        <h4 class="preview-title">What we'll analyze:</h4>
-        <ul class="preview-list">
-          <li class="preview-item">
-            <span class="preview-icon">📹</span>
-            <span class="preview-text">Up to 5 YouTube videos</span>
-          </li>
-          <li class="preview-item">
-            <span class="preview-icon">📰</span>
-            <span class="preview-text">Recent & historical news articles</span>
-          </li>
-          <li class="preview-item">
-            <span class="preview-icon">🤖</span>
-            <span class="preview-text">AI sentiment & emotion analysis</span>
-          </li>
-          <li class="preview-item">
-            <span class="preview-icon">💬</span>
-            <span class="preview-text">User comments & engagement</span>
-          </li>
-        </ul>
-      </div>
-    </div>
+    <input 
+      type="text" 
+      class="topic-input"
+      [(ngModel)]="newTopicName"
+      placeholder="Enter topic name..."
+      (keyup.enter)="createTopic()"
+      [disabled]="creating"
+      autofocus>
     
     <div class="modal-actions">
-      <button class="btn-secondary" (click)="closeCreateModal()" [disabled]="creating">
+      <button class="btn-cancel" (click)="closeCreateModal()" [disabled]="creating">
         Cancel
       </button>
-      <button class="btn-primary" (click)="createTopic()" [disabled]="!newTopicName.trim() || creating">
-        <span class="btn-icon" *ngIf="!creating">🚀</span>
-        <span class="btn-spinner" *ngIf="creating"></span>
-        <span class="btn-text">{{ creating ? 'Creating...' : 'Start Analysis' }}</span>
+      <button class="btn-submit" (click)="createTopic()" [disabled]="!newTopicName.trim() || creating">
+        {{ creating ? 'Creating...' : 'Create & Analyze' }}
       </button>
     </div>
   </div>

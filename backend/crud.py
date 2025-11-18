@@ -1,7 +1,7 @@
 ﻿from sqlalchemy.orm import Session
 from typing import List, Optional
-from . import models
-from . import schemas
+import models
+import schemas
 from datetime import datetime
 
 

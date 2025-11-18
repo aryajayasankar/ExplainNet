@@ -4,12 +4,12 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os
 from typing import List
-from .database import engine, Base, get_db
-from . import models
-from . import schemas
-from . import crud
-from . import pipeline
-from . import cache_service
+from database import engine, Base, get_db
+import models
+import schemas
+import crud
+import pipeline
+import cache_service
 
 load_dotenv()
 

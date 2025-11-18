@@ -2,14 +2,14 @@ import asyncio
 import os
 from sqlalchemy.orm import Session
 from typing import Dict
-from . import crud
-from . import youtube_service
-from . import news_service
-from . import transcription_service
-from . import huggingface_service
-from . import gemini_service
-from . import impact_score_service
-from . import cache_service
+import crud
+import youtube_service
+import news_service
+import transcription_service
+import huggingface_service
+import gemini_service
+import impact_score_service
+import cache_service
 from datetime import datetime
 
 

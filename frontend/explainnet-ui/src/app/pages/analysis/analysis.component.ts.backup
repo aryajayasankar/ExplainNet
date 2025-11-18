@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
-import { ThemeService } from '../../services/theme.service';
 import { Topic, Video, Sentiment, Comment, Transcript, NewsArticle } from '../../models/topic.model';
 
 @Component({
@@ -21,8 +20,7 @@ export class AnalysisComponent implements OnInit {
   loading = true;
   
   // Tab management
-  activeTab: 'videos' | 'news' | 'ai' | 'overview' = 'overview';
-  modalTab: 'transcript' | 'sentiment' | 'comments' = 'transcript';
+  activeTab: 'videos' | 'news' | 'ai' = 'videos';
   
   // AI Summary data
   aiSummary: any = null;
@@ -43,8 +41,7 @@ export class AnalysisComponent implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private apiService: ApiService,
-    private router: Router,
-    public themeService: ThemeService
+    private router: Router
   ) {}
 
   ngOnInit() {
@@ -213,52 +210,11 @@ export class AnalysisComponent implements OnInit {
     }
   }
 
-  switchTab(tab: 'videos' | 'news' | 'ai' | 'overview') {
+  switchTab(tab: 'videos' | 'news' | 'ai') {
     this.activeTab = tab;
     if (tab === 'ai' && !this.aiSummary) {
       this.loadAISummary();
     }
-  }
-
-  toggleTheme() {
-    this.themeService.toggleTheme();
-  }
-
-  exportData() {
-    // TODO: Implement export functionality
-    console.log('Export data');
-  }
-
-  getPercentage(count: number): number {
-    const total = this.videos.length || 1;
-    return Math.round((count / total) * 100);
-  }
-
-  getSparklinePoints(): string {
-    if (this.videos.length === 0) return '0,50 100,50';
-    const points = this.videos.map((v, i) => {
-      const x = (i / Math.max(this.videos.length - 1, 1)) * 200;
-      const sentiment = v.overall_sentiment?.toLowerCase();
-      const y = sentiment === 'positive' ? 20 : sentiment === 'negative' ? 80 : 50;
-      return `${x},${y}`;
-    });
-    return points.join(' ');
-  }
-
-  getAvgViews(): string {
-    if (this.videos.length === 0) return '0';
-    const avg = this.videos.reduce((sum, v) => sum + (v.view_count || 0), 0) / this.videos.length;
-    return this.formatNumber(avg);
-  }
-
-  getTotalLikes(): string {
-    const total = this.videos.reduce((sum, v) => sum + (v.like_count || 0), 0);
-    return this.formatNumber(total);
-  }
-
-  getTotalComments(): string {
-    const total = this.videos.reduce((sum, v) => sum + (v.comment_count || 0), 0);
-    return this.formatNumber(total);
   }
 
   loadAISummary() {
