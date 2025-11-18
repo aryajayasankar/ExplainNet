@@ -13,6 +13,433 @@ import cache_service
 from datetime import datetime
 
 
+async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
+    """
+    Streaming version of analyze_topic that yields progress messages for SSE
+    
+    Yields progress messages with format:
+    {
+        "status": "progress",
+        "message": "User-friendly message",
+        "type": "info" | "success" | "warning" | "error"
+    }
+    """
+    
+    try:
+        # Update status to processing
+        crud.update_topic_status(db, topic_id, "processing")
+        
+        yield {"status": "progress", "message": "🔄 Initializing analysis pipeline...", "type": "info"}
+        
+        # Check cache first
+        cached_result = cache_service.get_cached_topic_search(topic_name)
+        if cached_result:
+            yield {"status": "progress", "message": "💾 Found cached results!", "type": "success"}
+            
+            # Update topic with cached data
+            topic = crud.get_topic(db, topic_id)
+            topic.total_videos = cached_result.get('total_videos', 0)
+            topic.total_articles = cached_result.get('total_articles', 0)
+            topic.overall_impact_score = cached_result.get('overall_impact_score')
+            topic.overall_sentiment = cached_result.get('overall_sentiment')
+            topic.analysis_status = "completed"
+            topic.last_analyzed_at = datetime.now()
+            db.commit()
+            
+            yield {"status": "progress", "message": f"✅ Retrieved {cached_result.get('total_videos', 0)} videos and {cached_result.get('total_articles', 0)} articles from cache", "type": "success"}
+            return
+        
+        # Verify API keys
+        youtube_key = os.getenv("YOUTUBE_API_KEY")
+        if not youtube_key:
+            yield {"status": "error", "message": "❌ YouTube API key not configured", "type": "error"}
+            raise ValueError("YOUTUBE_API_KEY not set")
+        
+        yield {"status": "progress", "message": "✅ API keys verified", "type": "success"}
+        
+        # Step 1: Search YouTube videos
+        yield {"status": "progress", "message": f"🔍 Searching YouTube for \"{topic_name}\"...", "type": "info"}
+        videos = await youtube_service.search_videos(topic_name, max_results=5)
+        
+        if not videos:
+            yield {"status": "progress", "message": "❌ No videos found", "type": "error"}
+            crud.update_topic_status(db, topic_id, "completed", "No videos found")
+            return
+        
+        yield {"status": "progress", "message": f"✅ Found {len(videos)} videos", "type": "success"}
+        
+        # Step 2: Get video details and filter
+        yield {"status": "progress", "message": "📋 Fetching video details...", "type": "info"}
+        video_ids = [v["video_id"] for v in videos]
+        video_details = await youtube_service.get_video_details(video_ids)
+        
+        # Filter for valid videos
+        valid_video_details = [vd for vd in video_details if vd.get("is_valid", False)]
+        valid_video_details = valid_video_details[:5]
+        
+        if not valid_video_details:
+            yield {"status": "progress", "message": "❌ No valid videos found (filters: English, ≤35 mins)", "type": "error"}
+            crud.update_topic_status(db, topic_id, "completed", "No valid videos found")
+            return
+        
+        yield {"status": "progress", "message": f"✅ Filtered to {len(valid_video_details)} valid videos", "type": "success"}
+        
+        # Merge details
+        video_details_map = {vd["video_id"]: vd for vd in valid_video_details}
+        valid_videos = []
+        for video in videos:
+            vid = video["video_id"]
+            if vid in video_details_map:
+                video.update(video_details_map[vid])
+                valid_videos.append(video)
+        videos = valid_videos
+        
+        # Step 3: Get channel details
+        yield {"status": "progress", "message": "👥 Fetching channel information...", "type": "info"}
+        channel_ids = list(set([v.get("channel_id") for v in videos if v.get("channel_id")]))
+        channel_details = await youtube_service.get_channel_details(channel_ids)
+        channel_details_map = {cd["channel_id"]: cd for cd in channel_details}
+        
+        for video in videos:
+            ch_id = video.get("channel_id")
+            if ch_id and ch_id in channel_details_map:
+                video["subscriber_count"] = channel_details_map[ch_id]["subscriber_count"]
+            else:
+                video["subscriber_count"] = 0
+        
+        yield {"status": "progress", "message": "✅ Channel data retrieved", "type": "success"}
+        
+        # Process videos IN PARALLEL with progress tracking
+        yield {"status": "progress", "message": f"⚙️ Processing {len(videos)} videos...", "type": "info"}
+        
+        # Show first video title
+        if videos:
+            first_title = videos[0].get('title', '')[:60] + "..." if len(videos[0].get('title', '')) > 60 else videos[0].get('title', '')
+            yield {"status": "progress", "message": f"📹 Video 1/{len(videos)}: {first_title}", "type": "info"}
+        
+        video_tasks = []
+        for idx, video_data in enumerate(videos, 1):
+            video_tasks.append(process_video_streaming(db, topic_id, video_data, idx, len(videos)))
+        
+        # Process videos and show progress
+        yield {"status": "progress", "message": "🎙️ Transcribing audio...", "type": "info"}
+        yield {"status": "progress", "message": "💭 Analyzing sentiment with AI...", "type": "info"}
+        yield {"status": "progress", "message": "💬 Processing comments...", "type": "info"}
+        
+        # Gather results
+        results = await asyncio.gather(*video_tasks, return_exceptions=True)
+        
+        # Count successes
+        successful = sum(1 for r in results if not isinstance(r, Exception))
+        yield {"status": "progress", "message": f"✅ Processed {successful}/{len(videos)} videos successfully", "type": "success"}
+        
+        # Step 5: Search news articles
+        yield {"status": "progress", "message": "📰 Searching news articles...", "type": "info"}
+        
+        recent_articles = []
+        try:
+            recent_articles = await news_service.search_articles(topic_name, max_results=2)
+            if recent_articles:
+                yield {"status": "progress", "message": f"✅ Found {len(recent_articles)} recent articles (NewsAPI)", "type": "success"}
+        except Exception as e:
+            yield {"status": "progress", "message": f"⚠️ NewsAPI unavailable, continuing...", "type": "warning"}
+        
+        historical_articles = []
+        try:
+            historical_articles = await news_service.search_guardian_articles(topic_name, max_results=2)
+            if historical_articles:
+                yield {"status": "progress", "message": f"✅ Found {len(historical_articles)} historical articles (Guardian)", "type": "success"}
+        except Exception as e:
+            yield {"status": "progress", "message": f"⚠️ Guardian API unavailable, continuing...", "type": "warning"}
+        
+        # Tag and combine articles
+        for a in recent_articles:
+            a["source_type"] = "recent"
+        for a in historical_articles:
+            a["source_type"] = "historical"
+        all_articles = recent_articles + historical_articles
+        
+        if len(all_articles) == 0:
+            yield {"status": "progress", "message": "⚠️ No news articles found", "type": "warning"}
+        else:
+            yield {"status": "progress", "message": f"📝 Summarizing {len(all_articles)} articles with AI...", "type": "info"}
+            
+            # Process articles with progress updates
+            for idx, article in enumerate(all_articles, 1):
+                try:
+                    # Summarize article
+                    summary_result = await gemini_service.summarize_article(
+                        title=article.get("title", ""),
+                        description=article.get("description", ""),
+                        content=article.get("content", "")
+                    )
+                    article["gemini_justification"] = summary_result.get("gist", "")
+                    
+                    # Calculate relevance
+                    try:
+                        relevance = await gemini_service.calculate_news_relevance(topic_name, article.get("title", ""))
+                        article["relevance_score"] = relevance
+                    except Exception:
+                        article["relevance_score"] = 50
+                    
+                    # Set sentiment fields to None (no sentiment analysis for articles)
+                    article["hf_sentiment"] = None
+                    article["hf_score"] = None
+                    article["hf_justification"] = None
+                    article["gemini_sentiment"] = None
+                    article["gemini_support"] = None
+                    article["gemini_score"] = None
+                    article["gemini_sarcasm_score"] = None
+                    article["overall_sentiment"] = None
+                    article["positive_score"] = None
+                    article["negative_score"] = None
+                    article["neutral_score"] = None
+                    article["entities_json"] = None
+                    article["entities"] = None
+                    
+                    # Save to database
+                    crud.create_article(db, article, topic_id)
+                    
+                    if idx % 2 == 0 or idx == len(all_articles):
+                        yield {"status": "progress", "message": f"✅ Processed article {idx}/{len(all_articles)}", "type": "info"}
+                    
+                    # Small delay to avoid rate limits
+                    await asyncio.sleep(1)
+                    
+                except Exception as article_error:
+                    yield {"status": "progress", "message": f"⚠️ Article {idx} failed: {str(article_error)[:50]}", "type": "warning"}
+            
+            yield {"status": "progress", "message": f"✅ All {len(all_articles)} articles summarized", "type": "success"}
+        
+        # Calculate statistics
+        yield {"status": "progress", "message": "📊 Calculating final statistics...", "type": "info"}
+        
+        unique_sources = len(set([a.get("source", "") for a in all_articles if a.get("source")]))
+        
+        topic = crud.get_topic(db, topic_id)
+        topic.total_videos = len(videos)
+        topic.total_articles = len(all_articles)
+        topic.unique_sources_count = unique_sources
+        
+        # Calculate average impact score
+        all_videos = crud.get_videos_by_topic(db, topic_id)
+        impact_scores = [v.impact_score for v in all_videos if v.impact_score is not None]
+        if impact_scores:
+            topic.overall_impact_score = sum(impact_scores) / len(impact_scores)
+        
+        # Determine overall sentiment
+        sentiments = []
+        for v in all_videos:
+            video_sentiments = crud.get_sentiments_by_video(db, v.id)
+            if video_sentiments:
+                sentiments.append(video_sentiments[0].sentiment)
+        
+        filtered = [s for s in sentiments if s and str(s).upper() != 'UNKNOWN']
+        if filtered:
+            from collections import Counter
+            sentiment_counts = Counter(filtered)
+            topic.overall_sentiment = sentiment_counts.most_common(1)[0][0]
+        else:
+            topic.overall_sentiment = None
+        
+        topic.analysis_status = "completed"
+        topic.last_analyzed_at = datetime.now()
+        db.commit()
+        
+        # Cache results
+        cache_data = {
+            "total_videos": topic.total_videos,
+            "total_articles": topic.total_articles,
+            "overall_impact_score": topic.overall_impact_score,
+            "overall_sentiment": topic.overall_sentiment,
+            "analyzed_at": datetime.now().isoformat()
+        }
+        cache_service.cache_topic_search(topic_name, cache_data, ttl_seconds=900)
+        
+        yield {"status": "progress", "message": f"✅ Analysis complete! Impact score: {topic.overall_impact_score:.1f}/10" if topic.overall_impact_score else "✅ Analysis complete!", "type": "success"}
+    
+    except Exception as e:
+        yield {"status": "error", "message": f"❌ Critical error: {str(e)[:100]}", "type": "error"}
+        db.rollback()
+        crud.update_topic_status(db, topic_id, "failed", str(e))
+
+
+async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, video_num: int, total_videos: int):
+    """Streaming version of process_video - returns success/failure without yielding"""
+    
+    try:
+        video_id = video_data["video_id"]
+        video_title = video_data['title'][:50] + "..." if len(video_data['title']) > 50 else video_data['title']
+        
+        # Check cache
+        existing_video = db.query(crud.models.Video).filter(
+            crud.models.Video.video_id == video_id
+        ).first()
+        
+        if existing_video and existing_video.impact_score is not None:
+            # Video already analyzed, reuse it
+            return {"success": True, "message": f"Video {video_num} reused from cache"}
+        
+        # Create video record
+        video_data_for_db = {k: v for k, v in video_data.items() if k != 'is_valid'}
+        db_video = crud.create_video(db, video_data_for_db, topic_id)
+        
+        # Transcribe video
+        try:
+            transcript_result = transcription_service.transcribe_video(video_id)
+            status = transcript_result.get("status", "unknown")
+            
+            if status == "success" and transcript_result.get("text"):
+                db_video.transcription_status = "success"
+                db.commit()
+            elif status == "timeout":
+                db_video.transcription_status = "timeout"
+                db_video.transcription_error = transcript_result.get("error", "Timeout")
+                db.commit()
+                transcript_result = {"text": None}
+            else:
+                db_video.transcription_status = "failed"
+                db_video.transcription_error = transcript_result.get("error", "Unknown error")
+                db.commit()
+                transcript_result = {"text": None}
+        except Exception as trans_error:
+            db_video.transcription_status = "failed"
+            db_video.transcription_error = str(trans_error)
+            db.commit()
+            transcript_result = {"text": None}
+        
+        hf_sentiment = None
+        gemini_sentiment = None
+        
+        if transcript_result.get("text"):
+            # Save transcript
+            try:
+                crud.create_transcript(db, transcript_result, db_video.id)
+            except Exception:
+                db.rollback()
+            
+            transcript_text = transcript_result["text"]
+            
+            # VADER sentiment
+            try:
+                hf_sentiment = await huggingface_service.analyze_sentiment(transcript_text)
+                crud.create_sentiment(db, hf_sentiment, db_video.id)
+            except Exception:
+                pass
+            
+            # Gemini sentiment
+            try:
+                gemini_sentiment = await gemini_service.analyze_sentiment_advanced(
+                    transcript_text,
+                    video_data["title"]
+                )
+                crud.create_sentiment(db, gemini_sentiment, db_video.id)
+            except Exception:
+                pass
+            
+            # Extract entities
+            try:
+                entities = await gemini_service.extract_entities(
+                    transcript_text,
+                    context=video_data["title"]
+                )
+                import json
+                db_video.entities_json = json.dumps(entities)
+                db.commit()
+            except Exception:
+                pass
+            
+            # Get and analyze comments
+            try:
+                comments = await youtube_service.get_video_comments(video_id, max_results=20)
+                
+                if comments:
+                    # Process comments in batches
+                    async def analyze_comment(comment_data):
+                        comment_text = comment_data["text"]
+                        
+                        try:
+                            hf_result = await huggingface_service.analyze_sentiment(comment_text)
+                            if isinstance(hf_result, dict) and hf_result.get("sentiment"):
+                                comment_data["hf_sentiment"] = hf_result.get("sentiment")
+                                comment_data["hf_score"] = hf_result.get("confidence", hf_result.get("score", 0.0))
+                                comment_data["hf_justification"] = hf_result.get("justification")
+                            else:
+                                comment_data["hf_sentiment"] = None
+                                comment_data["hf_score"] = None
+                        except Exception:
+                            comment_data["hf_sentiment"] = None
+                            comment_data["hf_score"] = None
+                        
+                        try:
+                            gemini_result = await gemini_service.analyze_comment_sentiment(comment_text)
+                            if isinstance(gemini_result, dict) and gemini_result.get("sentiment"):
+                                comment_data["gemini_sentiment"] = gemini_result.get("sentiment")
+                                comment_data["gemini_support"] = gemini_result.get("support_stance")
+                                comment_data["gemini_score"] = gemini_result.get("confidence", 0.0)
+                                comment_data["gemini_justification"] = gemini_result.get("justification")
+                                comment_data["gemini_sarcasm_score"] = gemini_result.get("sarcasm_score")
+                            else:
+                                comment_data["gemini_sentiment"] = None
+                                comment_data["gemini_support"] = None
+                                comment_data["gemini_score"] = None
+                        except Exception:
+                            comment_data["gemini_sentiment"] = None
+                            comment_data["gemini_support"] = None
+                            comment_data["gemini_score"] = None
+                        
+                        return comment_data
+                    
+                    # Process in batches
+                    batch_size = 10
+                    for i in range(0, len(comments), batch_size):
+                        batch = comments[i:i+batch_size]
+                        tasks = [analyze_comment(comment) for comment in batch]
+                        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        for result in batch_results:
+                            if isinstance(result, dict) and not isinstance(result, Exception):
+                                try:
+                                    crud.create_comment(db, result, db_video.id)
+                                except Exception:
+                                    db.rollback()
+                        
+                        if i + batch_size < len(comments):
+                            await asyncio.sleep(1)
+            except Exception:
+                pass
+        
+        # Calculate impact scores
+        try:
+            sentiment_data = {
+                "huggingface": hf_sentiment if hf_sentiment else None,
+                "gemini": gemini_sentiment if gemini_sentiment else None
+            } if (hf_sentiment or gemini_sentiment) else None
+
+            scores = impact_score_service.calculate_impact_score(video_data, sentiment_data)
+
+            if hf_sentiment and gemini_sentiment:
+                overall_sentiment, models_agree = impact_score_service.determine_overall_sentiment(
+                    hf_sentiment, gemini_sentiment
+                )
+                scores["overall_sentiment"] = overall_sentiment
+                scores["models_agree"] = models_agree
+            else:
+                scores["overall_sentiment"] = None
+                scores["models_agree"] = False
+
+            crud.update_video_scores(db, db_video.id, scores)
+        except Exception:
+            db.rollback()
+            raise
+        
+        return {"success": True, "message": f"Video {video_num} processed successfully"}
+    
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "message": f"Video {video_num} failed: {str(e)[:50]}"}
+
+
 async def analyze_topic(db: Session, topic_id: int, topic_name: str):
     """
     Main pipeline to analyze a topic
@@ -138,15 +565,26 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         
         print(f"\n✓ All {len(videos)} videos processed IN PARALLEL!\n")
         
-        # Step 5: Search and analyze news articles (both recent and historical)
+        # Step 5: Search and analyze news articles (both recent and historical) with bypass
         print(f"📰 Step 5: Searching news articles...")
         print(f"   - Fetching recent news (NewsAPI)...")
-        recent_articles = await news_service.search_articles(topic_name, max_results=2)
-        print(f"   ✓ Found {len(recent_articles)} recent articles")
+        
+        recent_articles = []
+        try:
+            recent_articles = await news_service.search_articles(topic_name, max_results=2)
+            print(f"   ✓ Found {len(recent_articles)} recent articles")
+        except Exception as e:
+            print(f"   ⚠️  NewsAPI failed: {type(e).__name__}: {str(e)[:100]}")
+            print(f"   → Continuing without recent articles...")
         
         print(f"   - Fetching historical news (Guardian)...")
-        historical_articles = await news_service.search_guardian_articles(topic_name, max_results=2)
-        print(f"   ✓ Found {len(historical_articles)} historical articles\n")
+        historical_articles = []
+        try:
+            historical_articles = await news_service.search_guardian_articles(topic_name, max_results=2)
+            print(f"   ✓ Found {len(historical_articles)} historical articles\n")
+        except Exception as e:
+            print(f"   ⚠️  Guardian failed: {type(e).__name__}: {str(e)[:100]}")
+            print(f"   → Continuing without historical articles...\n")
         
         # Tag articles by source type: recent (NewsAPI) vs historical (Guardian)
         for a in recent_articles:
@@ -156,8 +594,12 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
 
         all_articles = recent_articles + historical_articles
         
-        print(f"📝 Summarizing {len(all_articles)} articles (Gemini gist only - NO sentiment analysis)...")
-        print(f"🚀 Processing articles in parallel batches of 5...")
+        if len(all_articles) == 0:
+            print(f"⚠️  No news articles found (both APIs may be down or returned empty)")
+            print(f"   → Continuing analysis without news data...\n")
+        else:
+            print(f"📝 Summarizing {len(all_articles)} articles (Gemini gist only - NO sentiment analysis)...")
+            print(f"🚀 Processing articles in parallel batches of 5...")
         
         # Process articles in batches of 5 with exponential backoff
         async def process_article_with_retry(article_data, idx, total, topic_name):
@@ -203,47 +645,53 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
                         print(f"   ⚠️  Article {idx} error: {str(e)[:50]}")
                         break
         
-        # Process in batches of 5 to respect rate limits
-        batch_size = 5
-        for i in range(0, len(all_articles), batch_size):
-            batch = all_articles[i:i+batch_size]
-            batch_num = (i // batch_size) + 1
-            total_batches = (len(all_articles) + batch_size - 1) // batch_size
-            print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} articles)...")
+        # Process in batches of 5 to respect rate limits (only if articles exist)
+        if len(all_articles) > 0:
+            batch_size = 5
+            for i in range(0, len(all_articles), batch_size):
+                batch = all_articles[i:i+batch_size]
+                batch_num = (i // batch_size) + 1
+                total_batches = (len(all_articles) + batch_size - 1) // batch_size
+                print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} articles)...")
+                
+                # Process batch in parallel
+                tasks = [
+                    process_article_with_retry(article, i+idx+1, len(all_articles), topic_name)
+                    for idx, article in enumerate(batch)
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Small delay between batches (not between individual articles)
+                if i + batch_size < len(all_articles):
+                    await asyncio.sleep(2)  # Just 2 seconds between batches
             
-            # Process batch in parallel
-            tasks = [
-                process_article_with_retry(article, i+idx+1, len(all_articles), topic_name)
-                for idx, article in enumerate(batch)
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Process each article's data after batch completion
+            for article in all_articles:
+                # NO sentiment analysis for articles
+                article["hf_sentiment"] = None
+                article["hf_score"] = None
+                article["hf_justification"] = None
+                article["gemini_sentiment"] = None
+                article["gemini_support"] = None
+                article["gemini_score"] = None
+                article["gemini_sarcasm_score"] = None
+                article["overall_sentiment"] = None
+                article["positive_score"] = None
+                article["negative_score"] = None
+                article["neutral_score"] = None
+                
+                # Skip entity extraction to reduce Gemini API calls (rate limit: 10/min on free tier)
+                # This cuts API usage from 2 calls per article to 1 call per article
+                article["entities_json"] = None
+                article["entities"] = None
+                
+                # Save article to database
+                try:
+                    crud.create_article(db, article, topic_id)
+                except Exception as save_err:
+                    print(f"   ⚠️  Failed to save article: {str(save_err)[:100]}")
             
-            # Small delay between batches (not between individual articles)
-            if i + batch_size < len(all_articles):
-                await asyncio.sleep(2)  # Just 2 seconds between batches
-            
-            # NO sentiment analysis for articles
-            article_data["hf_sentiment"] = None
-            article_data["hf_score"] = None
-            article_data["hf_justification"] = None
-            article_data["gemini_sentiment"] = None
-            article_data["gemini_support"] = None
-            article_data["gemini_score"] = None
-            article_data["gemini_sarcasm_score"] = None
-            article_data["overall_sentiment"] = None
-            article_data["positive_score"] = None
-            article_data["negative_score"] = None
-            article_data["neutral_score"] = None
-            
-            # Skip entity extraction to reduce Gemini API calls (rate limit: 10/min on free tier)
-            # This cuts API usage from 2 calls per article to 1 call per article
-            article_data["entities_json"] = None
-            article_data["entities"] = None
-            
-            # Save article to database
-            crud.create_article(db, article_data, topic_id)
-        
-        print(f"✓ All {len(all_articles)} articles summarized and saved\n")
+            print(f"✓ All {len(all_articles)} articles summarized and saved\n")
         
         # Calculate source diversity
         unique_sources = len(set([a.get("source", "") for a in all_articles if a.get("source")]))

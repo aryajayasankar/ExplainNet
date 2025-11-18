@@ -127,6 +127,18 @@ def topic_full_analysis_key(topic_id: int) -> str:
 
 
 # High-level cache functions
+def get_cached(key: str) -> Optional[Any]:
+    """Generic get from cache"""
+    cache = get_cache()
+    return cache.get(key)
+
+
+def set_cached(key: str, value: Any, ttl: int = 900):
+    """Generic set to cache"""
+    cache = get_cache()
+    cache.set(key, value, ttl)
+
+
 def cache_topic_search(topic_name: str, result: Dict, ttl_seconds: int = 900):
     """Cache topic search results (15 min default)"""
     cache = get_cache()

@@ -673,52 +673,35 @@ async def generate_ai_synthesis(topic_data: Dict) -> Dict:
     avg_relevance = sum(a.get("relevance_score") or 50 for a in articles) / total_articles if total_articles > 0 else 0
     
     prompt = f"""
-You are an expert data analyst. Analyze this comprehensive dataset about "{topic_name}" and provide actionable insights.
+You are an expert data analyst. Analyze this dataset about "{topic_name}" and provide actionable insights.
 
 DATASET SUMMARY:
 - Topic: {topic_name}
-- Total YouTube Videos Analyzed: {total_videos}
+- Total YouTube Videos: {total_videos}
 - Total News Articles: {total_articles}
-- Total Views Across Videos: {total_views:,}
-
-VIDEO SENTIMENT BREAKDOWN:
-- Positive: {positive_count} ({positive_count/max(total_videos,1)*100:.1f}%)
-- Negative: {negative_count} ({negative_count/max(total_videos,1)*100:.1f}%)
-- Neutral: {neutral_count} ({neutral_count/max(total_videos,1)*100:.1f}%)
-
-METRICS:
+- Total Views: {total_views:,}
+- Sentiment: {positive_count} Positive, {negative_count} Negative, {neutral_count} Neutral
 - Average Impact Score: {avg_impact:.2f}/5.0
 - Average News Relevance: {avg_relevance:.1f}/100
 
-DETAILED VIDEO DATA:
-{json.dumps(videos[:10], indent=2)}
+VIDEO DATA (sample):
+{json.dumps(videos[:5], indent=2)}
 
-DETAILED ARTICLE DATA:
-{json.dumps(articles[:10], indent=2)}
+ARTICLE DATA (sample):
+{json.dumps(articles[:5], indent=2)}
 
-Based on this data, provide a JSON response with:
+Provide ONLY a valid JSON response (no extra text, no markdown):
 
 {{
-    "executive_summary": "3-4 sentence overview highlighting the most important finding",
-    "key_trends": [
-        "Trend 1 with specific numbers",
-        "Trend 2 with specific numbers",
-        "Trend 3 with specific numbers"
-    ],
-    "surprising_findings": [
-        "Unexpected insight 1",
-        "Unexpected insight 2"
-    ],
-    "recommendations": [
-        "Actionable recommendation 1",
-        "Actionable recommendation 2",
-        "Actionable recommendation 3"
-    ],
-    "dominant_emotion": "The most prominent emotion detected across content",
-    "content_quality_assessment": "Assessment of evidence quality and objectivity"
+    "executive_summary": "3-4 sentence overview with key findings",
+    "key_trends": ["Trend 1", "Trend 2", "Trend 3"],
+    "surprising_findings": ["Finding 1", "Finding 2"],
+    "recommendations": ["Rec 1", "Rec 2", "Rec 3"],
+    "dominant_emotion": "Primary emotion",
+    "content_quality_assessment": "Quality assessment"
 }}
 
-Be specific, reference actual numbers, and provide genuinely useful insights.
+CRITICAL: Return ONLY the JSON object. No markdown code blocks, no extra text.
 """
     
     try:
@@ -737,30 +720,70 @@ Be specific, reference actual numbers, and provide genuinely useful insights.
         response_text = getattr(response, "text", "") or str(response)
         response_text = response_text.strip()
         
-        # Strip markdown fences
-        if response_text.startswith("```json"):
-            response_text = response_text[len("```json"):].strip()
-        if response_text.startswith("```"):
-            response_text = response_text[3:].strip()
-        if response_text.endswith("```"):
-            response_text = response_text[:-3].strip()
+        # Aggressive JSON extraction and cleaning
+        # Remove markdown fences
+        response_text = response_text.replace("```json", "").replace("```", "").strip()
         
-        # Extract JSON block
+        # Find the JSON object boundaries
         first_brace = response_text.find("{")
         last_brace = response_text.rfind("}")
-        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-            json_text = response_text[first_brace:last_brace+1]
-        else:
-            json_text = response_text
         
-        parsed = json.loads(json_text)
+        if first_brace == -1 or last_brace == -1 or last_brace <= first_brace:
+            raise ValueError("No valid JSON object found in response")
         
-        # Ensure all fields exist
+        json_text = response_text[first_brace:last_brace+1]
+        
+        # Try to parse - if it fails, attempt to fix common issues
+        try:
+            parsed = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Initial JSON parse failed: {str(e)}")
+            print(f"⚠️ Attempting to repair JSON...")
+            
+            # Common fixes
+            # 1. Fix trailing commas
+            import re
+            json_text = re.sub(r',(\s*[}\]])', r'\1', json_text)
+            
+            # 2. Fix unescaped quotes in strings (best effort)
+            # This is tricky - skip for now
+            
+            # 3. Try parsing again
+            try:
+                parsed = json.loads(json_text)
+                print("✓ JSON repaired successfully")
+            except json.JSONDecodeError as e2:
+                print(f"❌ JSON repair failed: {str(e2)}")
+                print(f"❌ Problematic JSON: {json_text[:500]}")
+                
+                # Return fallback with error details
+                return {
+                    "executive_summary": f"Analysis generated but JSON parsing failed. Please try regenerating. Error: {str(e2)[:100]}",
+                    "key_trends": [
+                        f"Analyzed {total_videos} videos with {total_views:,} total views",
+                        f"Sentiment: {positive_count} Positive, {negative_count} Negative, {neutral_count} Neutral",
+                        f"Average impact score: {avg_impact:.2f}/5.0"
+                    ],
+                    "surprising_findings": [
+                        "AI synthesis encountered a formatting error",
+                        "Please click 'Regenerate' to try again"
+                    ],
+                    "recommendations": [
+                        "Regenerate analysis for complete insights",
+                        f"Manual review of {total_videos} videos recommended",
+                        "Check individual video and article tabs for detailed data"
+                    ],
+                    "dominant_emotion": "Mixed",
+                    "content_quality_assessment": "Unable to assess due to parsing error",
+                    "error": f"JSON parse error: {str(e2)[:200]}"
+                }
+        
+        # Ensure all required fields exist with defaults
         result = {
             "executive_summary": parsed.get("executive_summary", "Analysis complete"),
-            "key_trends": parsed.get("key_trends", []),
-            "surprising_findings": parsed.get("surprising_findings", []),
-            "recommendations": parsed.get("recommendations", []),
+            "key_trends": parsed.get("key_trends", []) if isinstance(parsed.get("key_trends"), list) else [],
+            "surprising_findings": parsed.get("surprising_findings", []) if isinstance(parsed.get("surprising_findings"), list) else [],
+            "recommendations": parsed.get("recommendations", []) if isinstance(parsed.get("recommendations"), list) else [],
             "dominant_emotion": parsed.get("dominant_emotion", "Mixed"),
             "content_quality_assessment": parsed.get("content_quality_assessment", "Varied quality")
         }
@@ -769,10 +792,27 @@ Be specific, reference actual numbers, and provide genuinely useful insights.
     
     except Exception as e:
         print(f"❌ AI synthesis error: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        
+        # Return informative fallback
         return {
-            "executive_summary": f"Error generating synthesis: {str(e)}",
-            "key_trends": [],
-            "surprising_findings": [],
-            "recommendations": [],
+            "executive_summary": f"Automatic synthesis generation encountered an error: {str(e)[:100]}. Basic statistics are available in other tabs.",
+            "key_trends": [
+                f"Dataset: {total_videos} videos with {total_views:,} total views",
+                f"Sentiment distribution: {positive_count} Positive, {negative_count} Negative, {neutral_count} Neutral",
+                f"Average impact score: {avg_impact:.2f}/5.0"
+            ],
+            "surprising_findings": [
+                "Automated AI analysis unavailable",
+                "Please try regenerating or check individual tabs for detailed insights"
+            ],
+            "recommendations": [
+                "Click 'Regenerate' button to retry AI synthesis",
+                "Review individual video and article tabs for manual analysis",
+                "Check Videos tab for detailed sentiment breakdowns"
+            ],
+            "dominant_emotion": "Unknown (analysis error)",
+            "content_quality_assessment": "Manual review recommended",
             "error": str(e)
         }

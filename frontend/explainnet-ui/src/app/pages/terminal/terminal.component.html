@@ -1,0 +1,135 @@
+<div class="terminal-container" [class.dark]="(isDarkMode$ | async)">
+  <!-- Theme Toggle -->
+  <button class="theme-toggle" (click)="toggleTheme()">
+    <span class="theme-icon">{{ (isDarkMode$ | async) ? '☀️' : '🌙' }}</span>
+  </button>
+
+  <!-- Back Button -->
+  <button class="btn-back" (click)="goToLocker()" *ngIf="currentState === 'chat'">
+    <span class="back-icon">←</span>
+    <span>Back to Locker</span>
+  </button>
+
+  <!-- CHAT STATE -->
+  <div class="chat-container" *ngIf="currentState === 'chat'">
+    <div class="chat-content">
+      <div class="ai-avatar">
+        <div class="avatar-icon">🎯</div>
+        <div class="avatar-glow"></div>
+      </div>
+      
+      <h1 class="chat-title">
+        <span class="gradient-text">ExplainNet AI</span>
+      </h1>
+      
+      <p class="chat-subtitle">
+        Hi! I'm your AI-powered sentiment analyst. Tell me what topic you'd like to explore, 
+        and I'll analyze videos, news articles, and public sentiment for you.
+      </p>
+      
+      <div class="chat-input-wrapper">
+        <input 
+          type="text" 
+          class="chat-input"
+          [(ngModel)]="topicInput"
+          (keypress)="onTopicKeyPress($event)"
+          placeholder="Type a topic (e.g., Trump, Climate Change, AI Ethics)..."
+          autofocus
+        />
+        <button 
+          class="btn-send" 
+          (click)="startAnalysis()"
+          [disabled]="!topicInput.trim()"
+        >
+          <span class="send-icon">→</span>
+        </button>
+      </div>
+      
+      <p class="chat-hint">Press Enter to start analysis</p>
+    </div>
+  </div>
+
+  <!-- PROCESSING STATE -->
+  <div class="terminal-wrapper" *ngIf="currentState === 'processing'">
+    <div class="terminal-header">
+      <div class="terminal-title">
+        <span class="terminal-icon">⚡</span>
+        <span>ExplainNet AI Terminal</span>
+      </div>
+      <div class="terminal-actions">
+        <span class="terminal-status">
+          <span class="status-dot"></span>
+          <span>Processing...</span>
+        </span>
+        <button class="btn-cancel" (click)="cancelAnalysis()">
+          <span>✕ Cancel</span>
+        </button>
+      </div>
+    </div>
+    
+    <div class="terminal-logs">
+      <div 
+        *ngFor="let log of logs" 
+        class="log-line"
+        [class.visible]="log.visible"
+        [class.log-success]="log.type === 'success'"
+        [class.log-error]="log.type === 'error'"
+        [class.log-progress]="log.type === 'progress'"
+      >
+        <span class="log-icon">{{ getLogIcon(log.type) }}</span>
+        <span class="log-text">{{ log.text }}</span>
+      </div>
+      <div class="terminal-cursor" *ngIf="isProcessing">_</div>
+    </div>
+  </div>
+
+  <!-- COMPLETE STATE -->
+  <div class="completion-container" *ngIf="currentState === 'complete'">
+    <div class="completion-content">
+      <div class="completion-icon">✨</div>
+      
+      <h2 class="completion-title">Analysis Complete!</h2>
+      
+      <p class="completion-message">
+        I've finished analyzing <strong>{{ topicInput }}</strong>. 
+        Your comprehensive sentiment analysis is ready with insights from videos, news articles, and AI synthesis.
+      </p>
+      
+      <div class="completion-actions">
+        <button class="btn-view-analytics" (click)="viewAnalytics()">
+          <span class="analytics-icon">📊</span>
+          <span>View Analytics Dashboard</span>
+          <span class="arrow-icon">→</span>
+        </button>
+        
+        <button class="btn-new-analysis" (click)="resetToChat()">
+          <span>Start New Analysis</span>
+        </button>
+      </div>
+      
+      <!-- Show last few logs -->
+      <div class="completion-summary">
+        <h4>Process Summary:</h4>
+        <div class="summary-logs">
+          <div *ngFor="let log of logs.slice(-5)" class="summary-log">
+            {{ log.text }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ERROR STATE -->
+  <div class="error-container" *ngIf="currentState === 'error'">
+    <div class="error-content">
+      <div class="error-icon">⚠️</div>
+      <h2 class="error-title">Something went wrong</h2>
+      <p class="error-message">
+        I encountered an issue while analyzing your topic. Please try again.
+      </p>
+      <button class="btn-retry" (click)="resetToChat()">
+        <span>Try Again</span>
+      </button>
+    </div>
+  </div>
+</div>

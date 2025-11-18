@@ -1,13 +1,7 @@
-﻿/* ===================================
-   LOCKER COMPONENT - NEURAL DASHBOARD
-   =================================== */
-
-.locker-container {
+﻿.locker-container {
   min-height: 100vh;
-  background: var(--bg-primary);
-  padding: 0;
-  position: relative;
-  overflow-x: hidden;
+  background: linear-gradient(135deg, #2D033B 0%, #810CA8 100%);
+  padding: 2rem;
 }
 
 .locker-header {

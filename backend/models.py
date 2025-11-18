@@ -9,9 +9,9 @@ class Topic(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     topic_name = Column(String(500), unique=True, nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     last_analyzed_at = Column(DateTime(timezone=True), nullable=True)
-    analysis_status = Column(String(50), default="pending")  # pending, processing, completed, failed
+    analysis_status = Column(String(50), default="pending", index=True)  # pending, processing, completed, failed
     total_videos = Column(Integer, default=0)
     total_articles = Column(Integer, default=0)
     overall_sentiment = Column(String(50), nullable=True)
@@ -20,6 +20,10 @@ class Topic(Base):
     
     # NEW: Source diversity metric
     unique_sources_count = Column(Integer, default=0)
+    
+    # AI Synthesis Cache
+    ai_synthesis_cache = Column(Text, nullable=True)  # JSON string of cached AI analysis
+    ai_synthesis_generated_at = Column(DateTime(timezone=True), nullable=True)  # When cache was generated
 
     # Relationships
     videos = relationship("Video", back_populates="topic", cascade="all, delete-orphan")
@@ -30,7 +34,7 @@ class Video(Base):
     __tablename__ = "videos"
 
     id = Column(Integer, primary_key=True, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
     video_id = Column(String(100), unique=True, nullable=False, index=True)
     title = Column(String(500), nullable=False)
     channel_name = Column(String(200), nullable=False)
@@ -166,7 +170,7 @@ class NewsArticle(Base):
     __tablename__ = "news_articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"), nullable=False, index=True)
     title = Column(String(500), nullable=False)
     source = Column(String(200), nullable=False)
     source_type = Column(String(50), nullable=True)  # 'recent' or 'historical'

@@ -1,0 +1,165 @@
+<div class="landing-container" [class.dark]="(isDarkMode$ | async)">
+  <!-- Theme Toggle -->
+  <button class="theme-toggle" (click)="toggleTheme()">
+    <span class="theme-icon">{{ (isDarkMode$ | async) ? '☀️' : '🌙' }}</span>
+    <span>{{ (isDarkMode$ | async) ? 'Light' : 'Dark' }}</span>
+  </button>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-background">
+      <div class="gradient-orb orb-1"></div>
+      <div class="gradient-orb orb-2"></div>
+      <div class="gradient-orb orb-3"></div>
+    </div>
+    
+    <div class="hero-content animate-on-load">
+      <div class="logo-badge">
+        <span class="logo-icon">🎯</span>
+        <span class="logo-text">ExplainNet</span>
+      </div>
+      
+      <h1 class="hero-title">
+        Transform Media Analysis with
+        <span class="gradient-text">AI-Powered Intelligence</span>
+      </h1>
+      
+      <p class="hero-subtitle">
+        Comprehensive sentiment analysis across YouTube videos and news articles.
+        Understand public opinion, track trends, and make data-driven decisions.
+      </p>
+      
+      <div class="hero-actions">
+        <button class="btn-primary" (click)="navigateToLocker()">
+          <span>Get Started</span>
+          <span class="btn-icon">→</span>
+        </button>
+        <button class="btn-secondary">
+          <span class="btn-icon">▶️</span>
+          <span>Watch Demo</span>
+        </button>
+      </div>
+      
+      <div class="hero-stats animate-on-load">
+        <div class="stat-item" *ngFor="let stat of stats">
+          <div class="stat-icon">{{ stat.icon }}</div>
+          <div class="stat-details">
+            <div class="stat-value">{{ stat.value }}</div>
+            <div class="stat-label">{{ stat.label }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features-section">
+    <div class="section-header animate-on-load">
+      <span class="section-badge">Features</span>
+      <h2 class="section-title">Everything you need for media intelligence</h2>
+      <p class="section-subtitle">
+        Powerful tools and AI models to analyze, understand, and visualize sentiment across multiple platforms.
+      </p>
+    </div>
+    
+    <div class="features-grid">
+      <div class="feature-card animate-on-load" *ngFor="let feature of features">
+        <div class="feature-icon-wrapper" [style.background]="feature.gradient">
+          <span class="feature-icon">{{ feature.icon }}</span>
+        </div>
+        <h3 class="feature-title">{{ feature.title }}</h3>
+        <p class="feature-description">{{ feature.description }}</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works Section -->
+  <section class="how-it-works-section">
+    <div class="section-header animate-on-load">
+      <span class="section-badge">Process</span>
+      <h2 class="section-title">Simple yet powerful workflow</h2>
+    </div>
+    
+    <div class="workflow-steps">
+      <div class="workflow-step animate-on-load">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3 class="step-title">Create a Topic</h3>
+          <p class="step-description">Enter your topic of interest and configure analysis parameters.</p>
+        </div>
+      </div>
+      
+      <div class="workflow-connector"></div>
+      
+      <div class="workflow-step animate-on-load">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3 class="step-title">AI Analysis</h3>
+          <p class="step-description">Our AI engines process videos, articles, and comments in real-time.</p>
+        </div>
+      </div>
+      
+      <div class="workflow-connector"></div>
+      
+      <div class="workflow-step animate-on-load">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3 class="step-title">View Insights</h3>
+          <p class="step-description">Get comprehensive sentiment analysis, trends, and actionable insights.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Technology Stack Section -->
+  <section class="tech-stack-section">
+    <div class="section-header animate-on-load">
+      <span class="section-badge">Technology</span>
+      <h2 class="section-title">Built with cutting-edge AI</h2>
+    </div>
+    
+    <div class="tech-logos">
+      <div class="tech-item animate-on-load">
+        <div class="tech-logo">🤖</div>
+        <span class="tech-name">Gemini AI</span>
+      </div>
+      <div class="tech-item animate-on-load">
+        <div class="tech-logo">🦾</div>
+        <span class="tech-name">HuggingFace</span>
+      </div>
+      <div class="tech-item animate-on-load">
+        <div class="tech-logo">⚡</div>
+        <span class="tech-name">FastAPI</span>
+      </div>
+      <div class="tech-item animate-on-load">
+        <div class="tech-logo">🅰️</div>
+        <span class="tech-name">Angular</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Section -->
+  <section class="cta-section">
+    <div class="cta-content animate-on-load">
+      <h2 class="cta-title">Ready to analyze sentiment at scale?</h2>
+      <p class="cta-subtitle">Join thousands of researchers and analysts using ExplainNet.</p>
+      <button class="btn-cta" (click)="navigateToLocker()">
+        <span>Start Analyzing Now</span>
+        <span class="btn-icon">🚀</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="landing-footer">
+    <div class="footer-content">
+      <div class="footer-brand">
+        <span class="footer-logo">🎯 ExplainNet</span>
+        <p class="footer-tagline">AI-Powered Media Intelligence Platform</p>
+      </div>
+      <div class="footer-copyright">
+        <p>&copy; 2025 ExplainNet. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+</div>

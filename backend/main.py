@@ -10,6 +10,7 @@ import schemas
 import crud
 import pipeline
 import cache_service
+import gemini_service
 
 load_dotenv()
 
@@ -66,10 +67,63 @@ async def create_topic(
     return db_topic
 
 
+@app.get("/api/topics/create-streaming")
+async def create_topic_streaming(
+    topic: str,
+    db: Session = Depends(get_db)
+):
+    """Create a new topic and stream analysis progress via SSE"""
+    from fastapi.responses import StreamingResponse
+    import json
+    import asyncio
+    
+    async def event_stream():
+        try:
+            # Step 1: Create topic in database
+            yield f"data: {json.dumps({'status': 'progress', 'message': '📝 Creating topic...', 'type': 'info'})}\n\n"
+            await asyncio.sleep(0.2)
+            
+            db_topic = crud.create_topic(db, schemas.TopicCreate(topic_name=topic))
+            topic_id = db_topic.id
+            
+            yield f"data: {json.dumps({'status': 'progress', 'message': f'✅ Topic created: {topic}', 'type': 'success'})}\n\n"
+            await asyncio.sleep(0.2)
+            
+            # Step 2: Search YouTube
+            yield f"data: {json.dumps({'status': 'progress', 'message': f'🔍 Searching YouTube for \"{topic}\"...', 'type': 'info'})}\n\n"
+            await asyncio.sleep(0.3)
+            
+            # Run the pipeline analysis with progress streaming
+            async for progress_data in pipeline.analyze_topic_streaming(db, topic_id, topic):
+                yield f"data: {json.dumps(progress_data)}\n\n"
+                await asyncio.sleep(0.1)  # Small delay between messages
+            
+            # Final completion message
+            yield f"data: {json.dumps({'status': 'complete', 'topic_id': topic_id, 'message': '🎉 Analysis complete!', 'type': 'success'})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': f'❌ Error: {str(e)}', 'type': 'error'})}\n\n"
+    
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 @app.get("/api/topics", response_model=List[schemas.TopicResponse])
 async def get_topics(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Get all topics"""
+    """Get all topics with caching"""
+    # Create cache key based on skip and limit
+    cache_key = f"topics_list_{skip}_{limit}"
+    
+    # Try to get from cache first (30 second TTL for fast updates)
+    cached = cache_service.get_cached(cache_key)
+    if cached is not None:
+        return cached
+    
+    # If not cached, fetch from database
     topics = crud.get_topics(db, skip=skip, limit=limit)
+    
+    # Cache the result for 30 seconds
+    cache_service.set_cached(cache_key, topics, ttl=30)
+    
     return topics
 
 
@@ -351,15 +405,45 @@ async def get_ai_summary(topic_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/api/topics/{topic_id}/ai-synthesis")
-async def get_ai_synthesis(topic_id: int, db: Session = Depends(get_db)):
+async def get_ai_synthesis(topic_id: int, force_refresh: bool = False, db: Session = Depends(get_db)):
     """
     Generate comprehensive AI synthesis combining all analytics data using Gemini.
     Returns executive summary, key trends, surprising findings, and recommendations.
+    
+    Args:
+        topic_id: ID of the topic
+        force_refresh: If True, bypass cache and regenerate analysis
+        db: Database session
+    
+    Caching Strategy:
+        - Cache is stored in database (topic.ai_synthesis_cache)
+        - Cache expires after 24 hours
+        - Cache auto-invalidates when videos/articles are added
+        - Manual refresh via force_refresh parameter
     """
     topic = crud.get_topic(db, topic_id)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
     
+    # Check if we have valid cached data
+    if not force_refresh and topic.ai_synthesis_cache and topic.ai_synthesis_generated_at:
+        from datetime import datetime, timedelta
+        import json
+        
+        # Check if cache is less than 24 hours old
+        cache_age = datetime.utcnow() - topic.ai_synthesis_generated_at
+        if cache_age < timedelta(hours=24):
+            try:
+                cached_synthesis = json.loads(topic.ai_synthesis_cache)
+                cached_synthesis["from_cache"] = True
+                cached_synthesis["cache_generated_at"] = topic.ai_synthesis_generated_at.isoformat()
+                cached_synthesis["cache_age_hours"] = round(cache_age.total_seconds() / 3600, 2)
+                return cached_synthesis
+            except json.JSONDecodeError:
+                # Invalid cache, proceed to regenerate
+                pass
+    
+    # Cache miss or force refresh - generate new synthesis
     videos = crud.get_videos_by_topic(db, topic_id)
     articles = crud.get_articles_by_topic(db, topic_id)
     
@@ -408,8 +492,18 @@ async def get_ai_synthesis(topic_id: int, db: Session = Depends(get_db)):
     }
     
     # Call Gemini to generate synthesis
-    from . import gemini_service
     synthesis = await gemini_service.generate_ai_synthesis(topic_data)
+    
+    # Store in cache
+    import json
+    from datetime import datetime
+    
+    topic.ai_synthesis_cache = json.dumps(synthesis)
+    topic.ai_synthesis_generated_at = datetime.utcnow()
+    db.commit()
+    
+    synthesis["from_cache"] = False
+    synthesis["cache_generated_at"] = topic.ai_synthesis_generated_at.isoformat()
     
     return synthesis
 

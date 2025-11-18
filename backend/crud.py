@@ -1,4 +1,5 @@
-﻿from sqlalchemy.orm import Session
+﻿from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, case
 from typing import List, Optional
 import models
 import schemas
@@ -6,7 +7,31 @@ from datetime import datetime
 
 
 def get_topics(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Topic).order_by(models.Topic.created_at.desc()).offset(skip).limit(limit).all()
+    """Optimized query with eager loading and pre-calculated aggregates"""
+    # Use subquery to calculate aggregates efficiently
+    topics = db.query(
+        models.Topic,
+        func.count(models.Video.id).label('video_count'),
+        func.count(models.NewsArticle.id).label('article_count')
+    ).outerjoin(
+        models.Video, models.Topic.id == models.Video.topic_id
+    ).outerjoin(
+        models.NewsArticle, models.Topic.id == models.NewsArticle.topic_id
+    ).group_by(
+        models.Topic.id
+    ).order_by(
+        models.Topic.created_at.desc()
+    ).offset(skip).limit(limit).all()
+    
+    # Attach counts to topic objects
+    result = []
+    for topic, video_count, article_count in topics:
+        # Update the counts on the topic object
+        topic.total_videos = video_count
+        topic.total_articles = article_count
+        result.append(topic)
+    
+    return result
 
 
 def get_topic(db: Session, topic_id: int):
@@ -62,6 +87,14 @@ def create_video(db: Session, video_data: dict, topic_id: int):
     db.add(db_video)
     db.commit()
     db.refresh(db_video)
+    
+    # Invalidate AI synthesis cache when new video is added
+    topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+    if topic:
+        topic.ai_synthesis_cache = None
+        topic.ai_synthesis_generated_at = None
+        db.commit()
+    
     return db_video
 
 
@@ -184,6 +217,14 @@ def create_article(db: Session, article_data: dict, topic_id: int):
     db.add(db_article)
     db.commit()
     db.refresh(db_article)
+    
+    # Invalidate AI synthesis cache when new article is added
+    topic = db.query(models.Topic).filter(models.Topic.id == topic_id).first()
+    if topic:
+        topic.ai_synthesis_cache = None
+        topic.ai_synthesis_generated_at = None
+        db.commit()
+    
     return db_article
 
 

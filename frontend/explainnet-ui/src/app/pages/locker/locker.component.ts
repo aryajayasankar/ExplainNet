@@ -1,47 +1,88 @@
-﻿import { Component, OnInit } from '@angular/core';
+﻿import { Component, OnInit, OnDestroy, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
+import { ThemeService } from '../../services/theme.service';
 import { Topic, TopicCreate } from '../../models/topic.model';
+import { interval, Subscription } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 
 @Component({
   selector: 'app-locker',
   standalone: true,
   imports: [CommonModule, RouterModule, FormsModule],
   templateUrl: './locker.component.html',
-  styleUrls: ['./locker.component.scss']
+  styleUrls: ['./locker.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class LockerComponent implements OnInit {
+export class LockerComponent implements OnInit, OnDestroy {
   topics: Topic[] = [];
-  loading = false;
+  loading = true;
   showCreateModal = false;
   newTopicName = '';
   creating = false;
+  private pollingSubscription?: Subscription;
 
-  constructor(private apiService: ApiService) {}
+  constructor(
+    private apiService: ApiService,
+    public themeService: ThemeService,
+    private router: Router,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   ngOnInit() {
     this.loadTopics();
+    this.startPolling();
+  }
+
+  ngOnDestroy() {
+    this.stopPolling();
+  }
+
+  startPolling() {
+    // Poll every 5 seconds for updates on processing topics
+    this.pollingSubscription = interval(5000)
+      .pipe(switchMap(() => this.apiService.getTopics()))
+      .subscribe({
+        next: (topics) => {
+          const hasProcessing = topics.some(t => t.analysis_status === 'processing');
+          if (hasProcessing) {
+            this.topics = topics;
+            this.cdr.markForCheck();
+          }
+        },
+        error: (err) => console.error('Polling error:', err)
+      });
+  }
+
+  stopPolling() {
+    if (this.pollingSubscription) {
+      this.pollingSubscription.unsubscribe();
+    }
   }
 
   loadTopics() {
     this.loading = true;
+    this.cdr.markForCheck();
+    
     this.apiService.getTopics().subscribe({
       next: (topics) => {
         this.topics = topics;
         this.loading = false;
+        this.cdr.markForCheck();
       },
       error: (err) => {
         console.error('Error loading topics:', err);
         this.loading = false;
+        this.cdr.markForCheck();
       }
     });
   }
 
   openCreateModal() {
-    this.showCreateModal = true;
-    this.newTopicName = '';
+    // Navigate to terminal/chat interface instead of modal
+    this.router.navigate(['/create-analysis']);
   }
 
   closeCreateModal() {
@@ -53,6 +94,7 @@ export class LockerComponent implements OnInit {
     if (!this.newTopicName.trim()) return;
     
     this.creating = true;
+    this.cdr.markForCheck();
     const topicData: TopicCreate = { topic_name: this.newTopicName };
     
     this.apiService.createTopic(topicData).subscribe({
@@ -60,12 +102,25 @@ export class LockerComponent implements OnInit {
         this.topics.unshift(topic);
         this.closeCreateModal();
         this.creating = false;
+        this.cdr.markForCheck();
+        
+        // Navigate to analysis page immediately
+        this.router.navigate(['/analysis', topic.id]);
       },
       error: (err) => {
         console.error('Error creating topic:', err);
         this.creating = false;
+        this.cdr.markForCheck();
       }
     });
+  }
+
+  navigateToAnalysis(topic: Topic, event?: Event) {
+    if (event) event.stopPropagation();
+    
+    if (topic.analysis_status === 'completed') {
+      this.router.navigate(['/analysis', topic.id]);
+    }
   }
 
   deleteTopic(id: number, event: Event) {
@@ -75,11 +130,24 @@ export class LockerComponent implements OnInit {
     this.apiService.deleteTopic(id).subscribe({
       next: () => {
         this.topics = this.topics.filter(t => t.id !== id);
+        this.cdr.markForCheck();
       },
       error: (err) => {
         console.error('Error deleting topic:', err);
       }
     });
+  }
+
+  toggleTheme() {
+    this.themeService.toggleTheme();
+  }
+
+  goToLanding() {
+    this.router.navigate(['/']);
+  }
+
+  trackByTopicId(index: number, topic: Topic): number {
+    return topic.id;
   }
 
   getStatusClass(status: string): string {

@@ -4,7 +4,7 @@ def transcribe_video(video_id: str) -> dict:
     print(f"  - Transcribing with Vosk...")
     
     try:
-        from backend.transcription_engine.vosk_worker import VoskTranscriber
+        from .transcription_engine.vosk_worker import VoskTranscriber
         
         transcriber = VoskTranscriber()
         result = transcriber.transcribe_video(video_id)

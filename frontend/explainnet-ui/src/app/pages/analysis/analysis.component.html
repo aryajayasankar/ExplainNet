@@ -1,3 +1,10 @@
+<!-- Loading State -->
+<div class="loading-container" *ngIf="loading">
+  <div class="spinner"></div>
+  <h2>Loading Analysis...</h2>
+  <p>Gathering insights...</p>
+</div>
+
 <div class="analysis-container" *ngIf="!loading && topic">
   <!-- Theme Toggle -->
   <button class="theme-toggle" (click)="toggleTheme()">
@@ -297,10 +304,26 @@
       <!-- Executive Summary Card -->
       <div class="summary-card">
         <div class="summary-header">
-          <h2>🤖 AI Executive Summary</h2>
-          <div class="model-badges">
-            <span class="model-badge vader">VADER</span>
-            <span class="model-badge gemini">Gemini AI</span>
+          <div class="summary-title-group">
+            <h2>🤖 AI Executive Summary</h2>
+            <div class="model-badges">
+              <span class="model-badge vader">VADER</span>
+              <span class="model-badge gemini">Gemini AI</span>
+            </div>
+          </div>
+          <div class="summary-actions">
+            <button class="btn-regenerate" (click)="regenerateAIInsights()" [disabled]="regeneratingAI">
+              <span class="regenerate-icon">{{ regeneratingAI ? '⏳' : '🔄' }}</span>
+              <span>{{ regeneratingAI ? 'Regenerating...' : 'Regenerate' }}</span>
+            </button>
+            <span class="cache-info" *ngIf="aiSummary.from_cache">
+              <span class="cache-icon">💾</span>
+              <span class="cache-text">Cached {{ aiSummary.cache_age_hours }}h ago</span>
+            </span>
+            <span class="cache-info fresh" *ngIf="!aiSummary.from_cache">
+              <span class="cache-icon">✨</span>
+              <span class="cache-text">Fresh analysis</span>
+            </span>
           </div>
         </div>
         <p class="summary-text">{{ aiSummary.executive_summary }}</p>
@@ -417,11 +440,4 @@
       </div>
     </div>
   </div>
-</div>
-
-<!-- Loading State -->
-<div class="loading-container" *ngIf="loading">
-  <div class="spinner"></div>
-  <h2>Loading Analysis...</h2>
-  <p>Gathering insights for {{ topic?.topic_name }}</p>
 </div>

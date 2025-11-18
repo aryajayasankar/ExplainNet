@@ -1,4 +1,4 @@
-﻿import { Component, OnInit } from '@angular/core';
+﻿import { Component, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -11,7 +11,8 @@ import { Topic, Video, Sentiment, Comment, Transcript, NewsArticle } from '../..
   standalone: true,
   imports: [CommonModule, RouterModule, FormsModule],
   templateUrl: './analysis.component.html',
-  styleUrls: ['./analysis.component.scss']
+  styleUrls: ['./analysis.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class AnalysisComponent implements OnInit {
   topicId!: number;
@@ -26,6 +27,7 @@ export class AnalysisComponent implements OnInit {
   
   // AI Summary data
   aiSummary: any = null;
+  regeneratingAI = false;
   
   selectedVideo: Video | null = null;
   showVideoModal = false;
@@ -44,7 +46,8 @@ export class AnalysisComponent implements OnInit {
     private route: ActivatedRoute,
     private apiService: ApiService,
     private router: Router,
-    public themeService: ThemeService
+    public themeService: ThemeService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit() {
@@ -56,16 +59,19 @@ export class AnalysisComponent implements OnInit {
 
   loadData() {
     this.loading = true;
+    this.cdr.markForCheck();
     
     this.apiService.getTopic(this.topicId).subscribe({
       next: (topic) => {
         this.topic = topic;
         this.loadVideos();
         this.loadArticles();
+        this.cdr.markForCheck();
       },
       error: (err) => {
         console.error('Error loading topic:', err);
         this.loading = false;
+        this.cdr.markForCheck();
       }
     });
   }
@@ -75,8 +81,12 @@ export class AnalysisComponent implements OnInit {
       next: (videos) => {
         this.videos = videos;
         this.loading = false;
+        this.cdr.markForCheck();
       },
-      error: (err) => console.error('Error loading videos:', err)
+      error: (err) => {
+        console.error('Error loading videos:', err);
+        this.cdr.markForCheck();
+      }
     });
   }
 
@@ -85,18 +95,38 @@ export class AnalysisComponent implements OnInit {
       next: (articles) => {
         this.articles = articles;
         this.loadAISynthesis();
+        this.cdr.markForCheck();
       },
-      error: (err) => console.error('Error loading articles:', err)
+      error: (err) => {
+        console.error('Error loading articles:', err);
+        this.cdr.markForCheck();
+      }
     });
   }
 
-  loadAISynthesis() {
-    this.apiService.getAISynthesis(this.topicId).subscribe({
+  loadAISynthesis(forceRefresh: boolean = false) {
+    if (forceRefresh) {
+      this.regeneratingAI = true;
+      this.cdr.markForCheck();
+    }
+    
+    this.apiService.getAISynthesis(this.topicId, forceRefresh).subscribe({
       next: (synthesis) => {
         this.aiSummary = synthesis;
+        this.regeneratingAI = false;
+        this.cdr.markForCheck();
       },
-      error: (err) => console.error('Error loading AI synthesis:', err)
+      error: (err) => {
+        console.error('Error loading AI synthesis:', err);
+        this.regeneratingAI = false;
+        this.cdr.markForCheck();
+      }
     });
+  }
+  
+  regenerateAIInsights() {
+    this.aiSummary = null;
+    this.loadAISynthesis(true);
   }
 
   get topVideo(): Video | null {
@@ -216,7 +246,7 @@ export class AnalysisComponent implements OnInit {
   switchTab(tab: 'videos' | 'news' | 'ai' | 'overview') {
     this.activeTab = tab;
     if (tab === 'ai' && !this.aiSummary) {
-      this.loadAISummary();
+      this.loadAISynthesis();
     }
   }
 
