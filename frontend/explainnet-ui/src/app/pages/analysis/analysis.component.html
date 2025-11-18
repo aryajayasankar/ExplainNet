@@ -6,12 +6,6 @@
 </div>
 
 <div class="analysis-container" *ngIf="!loading && topic">
-  <!-- Theme Toggle -->
-  <button class="theme-toggle" (click)="toggleTheme()">
-    <span class="theme-icon">{{ themeService.isDark() ? '☀️' : '🌙' }}</span>
-    <span>{{ themeService.isDark() ? 'Light' : 'Dark' }}</span>
-  </button>
-
   <!-- Hero Header -->
   <header class="hero-header">
     <div class="header-actions">
@@ -20,14 +14,20 @@
         <span>Back to Dashboard</span>
       </button>
       
-      <button class="btn-export" (click)="exportData()">
-        <span class="export-icon">📊</span>
-        <span>Export</span>
-      </button>
-      
-      <button class="btn-delete" (click)="deleteTopic()">
-        <span class="delete-icon">🗑️</span>
-      </button>
+      <div class="actions-right">
+        <button class="theme-toggle" (click)="toggleTheme()">
+          <span class="theme-icon">{{ themeService.isDark() ? '☀️' : '🌙' }}</span>
+        </button>
+        
+        <button class="btn-export" (click)="exportData()">
+          <span class="export-icon">📊</span>
+          <span>Export</span>
+        </button>
+        
+        <button class="btn-delete" (click)="deleteTopic()">
+          <span class="delete-icon">🗑️</span>
+        </button>
+      </div>
     </div>
     
     <div class="hero-content">
