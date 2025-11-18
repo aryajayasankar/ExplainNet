@@ -1,5 +1,5 @@
 ﻿aiofiles==23.2.1
-aiohttp==3.8.5
+aiohttp
 aiosignal==1.4.0
 annotated-types==0.7.0
 anyio==3.7.1

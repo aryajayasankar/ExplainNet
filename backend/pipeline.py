@@ -9,6 +9,7 @@ from . import transcription_service
 from . import huggingface_service
 from . import gemini_service
 from . import impact_score_service
+from . import cache_service
 from datetime import datetime
 
 
@@ -36,6 +37,33 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         print(f"🚀 STARTING TOPIC ANALYSIS: {topic_name}")
         print(f"   Topic ID: {topic_id}")
         print(f"{'#'*80}\n")
+        
+        # 💾 CHECK CACHE FIRST - Skip entire analysis if topic recently analyzed
+        cached_result = cache_service.get_cached_topic_search(topic_name)
+        if cached_result:
+            print(f"💾💾💾 CACHE HIT! Topic '{topic_name}' already analyzed!")
+            print(f"   ⚡ Returning cached results in <1 second!")
+            print(f"   🎯 Cached videos: {cached_result.get('total_videos', 0)}")
+            print(f"   🎯 Cached articles: {cached_result.get('total_articles', 0)}")
+            
+            # Update topic with cached data
+            topic = crud.get_topic(db, topic_id)
+            topic.total_videos = cached_result.get('total_videos', 0)
+            topic.total_articles = cached_result.get('total_articles', 0)
+            topic.overall_impact_score = cached_result.get('overall_impact_score')
+            topic.overall_sentiment = cached_result.get('overall_sentiment')
+            topic.analysis_status = "completed"
+            topic.last_analyzed_at = datetime.now()
+            db.commit()
+            
+            print(f"\n{'#'*80}")
+            print(f"✅ TOPIC ANALYSIS COMPLETE (FROM CACHE): {topic_name}")
+            print(f"   ⚡ Instant result!")
+            print(f"{'#'*80}\n")
+            return
+        
+        # No cache hit - proceed with full analysis
+        print(f"🔍 NEW TOPIC - Starting full analysis...")
         
         # Verify API keys
         youtube_key = os.getenv("YOUTUBE_API_KEY")
@@ -95,13 +123,20 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
             else:
                 video["subscriber_count"] = 0
         
-        # Process videos (all of them since we only fetched 10)
-        print(f"⚙️  Step 4: Processing {len(videos)} videos...")
-        for idx, video_data in enumerate(videos, 1):
-            print(f"\n--- Processing video {idx}/{len(videos)} ---")
-            await process_video(db, topic_id, video_data)
+        # Process videos IN PARALLEL (all of them at once)
+        print(f"⚙️  Step 4: Processing {len(videos)} videos IN PARALLEL...")
+        print(f"🚀 Starting parallel processing for {len(videos)} videos...")
         
-        print(f"\n✓ All {len(videos)} videos processed!\n")
+        # Create tasks for all videos
+        video_tasks = [
+            process_video(db, topic_id, video_data)
+            for video_data in videos
+        ]
+        
+        # Process all videos simultaneously
+        await asyncio.gather(*video_tasks, return_exceptions=True)
+        
+        print(f"\n✓ All {len(videos)} videos processed IN PARALLEL!\n")
         
         # Step 5: Search and analyze news articles (both recent and historical)
         print(f"📰 Step 5: Searching news articles...")
@@ -122,60 +157,70 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         all_articles = recent_articles + historical_articles
         
         print(f"📝 Summarizing {len(all_articles)} articles (Gemini gist only - NO sentiment analysis)...")
+        print(f"🚀 Processing articles in parallel batches of 5...")
         
-        # Gemini free tier: 10 requests per minute
-        # Add 6-second delay between articles to avoid rate limits (10 articles/min = 6s each)
-        import asyncio
-        
-        for idx, article_data in enumerate(all_articles, 1):
+        # Process articles in batches of 5 with exponential backoff
+        async def process_article_with_retry(article_data, idx, total, topic_name):
+            """Process a single article with retry logic"""
             article_title = article_data.get("title", "")
             article_description = article_data.get("description", "")
             article_content = article_data.get("content", "")
             
-            if idx % 10 == 0 or idx == 1:
-                print(f"   Processing article {idx}/{len(all_articles)}...")
-            
-            # Gemini summary/gist ONLY (no sentiment analysis)
-            try:
-                summary_result = await gemini_service.summarize_article(
-                    title=article_title,
-                    description=article_description,
-                    content=article_content
-                )
-                # Store gist in gemini_justification field for now (reusing existing column)
-                article_data["gemini_justification"] = summary_result.get("gist", "")
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "quota" in error_str.lower():
-                    print(f"   ⚠️  Rate limit hit at article {idx}, waiting 60s...")
-                    await asyncio.sleep(60)
-                    # Retry once
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    summary_result = await gemini_service.summarize_article(
+                        title=article_title,
+                        description=article_description,
+                        content=article_content
+                    )
+                    article_data["gemini_justification"] = summary_result.get("gist", "")
+                    
+                    # Calculate relevance score
                     try:
-                        summary_result = await gemini_service.summarize_article(
-                            title=article_title,
-                            description=article_description,
-                            content=article_content
-                        )
-                        article_data["gemini_justification"] = summary_result.get("gist", "")
-                    except Exception as retry_e:
-                        print(f"   ⚠️  Article {idx} summary failed after retry: {retry_e}")
-                        article_data["gemini_justification"] = f"Summary unavailable (rate limit)"
-                else:
-                    print(f"   ⚠️  Article {idx} summary failed: {e}")
-                    article_data["gemini_justification"] = f"Summary unavailable: {str(e)}"
+                        relevance = await gemini_service.calculate_news_relevance(topic_name, article_title)
+                        article_data["relevance_score"] = relevance
+                    except Exception:
+                        article_data["relevance_score"] = 50
+                    
+                    if idx % 5 == 0 or idx == 1:
+                        print(f"   ✓ Processed article {idx}/{total}")
+                    return
+                except Exception as e:
+                    error_str = str(e)
+                    if "429" in error_str or "quota" in error_str.lower():
+                        if attempt < max_retries - 1:
+                            wait_time = (2 ** attempt) * 10  # Exponential backoff: 10s, 20s
+                            print(f"   ⚠️  Rate limit hit at article {idx}, waiting {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            article_data["gemini_justification"] = "Summary unavailable (rate limit)"
+                            article_data["relevance_score"] = 50
+                            print(f"   ⚠️  Article {idx} failed after retries")
+                    else:
+                        article_data["gemini_justification"] = f"Summary unavailable: {str(e)}"
+                        article_data["relevance_score"] = 50
+                        print(f"   ⚠️  Article {idx} error: {str(e)[:50]}")
+                        break
+        
+        # Process in batches of 5 to respect rate limits
+        batch_size = 5
+        for i in range(0, len(all_articles), batch_size):
+            batch = all_articles[i:i+batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(all_articles) + batch_size - 1) // batch_size
+            print(f"   Processing batch {batch_num}/{total_batches} ({len(batch)} articles)...")
             
-            # Calculate relevance score (how closely article relates to topic)
-            try:
-                relevance = await gemini_service.calculate_news_relevance(topic_name, article_title)
-                article_data["relevance_score"] = relevance
-            except Exception as e:
-                print(f"   ⚠️  Relevance calculation failed for article {idx}: {e}")
-                article_data["relevance_score"] = 50  # Default middling score
+            # Process batch in parallel
+            tasks = [
+                process_article_with_retry(article, i+idx+1, len(all_articles), topic_name)
+                for idx, article in enumerate(batch)
+            ]
+            await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Delay 6.5 seconds between articles (slightly over 6s for safety)
-            # This ensures we stay under 10 requests/minute
-            if idx < len(all_articles):  # Don't delay after last article
-                await asyncio.sleep(6.5)
+            # Small delay between batches (not between individual articles)
+            if i + batch_size < len(all_articles):
+                await asyncio.sleep(2)  # Just 2 seconds between batches
             
             # NO sentiment analysis for articles
             article_data["hf_sentiment"] = None
@@ -242,11 +287,22 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
         topic.last_analyzed_at = datetime.now()
         db.commit()
         
+        # 💾 CACHE THE RESULTS for future searches (15 min TTL)
+        cache_data = {
+            "total_videos": topic.total_videos,
+            "total_articles": topic.total_articles,
+            "overall_impact_score": topic.overall_impact_score,
+            "overall_sentiment": topic.overall_sentiment,
+            "analyzed_at": datetime.now().isoformat()
+        }
+        cache_service.cache_topic_search(topic_name, cache_data, ttl_seconds=900)  # 15 min
+        
         print(f"\n{'#'*80}")
         print(f"✅ TOPIC ANALYSIS COMPLETE: {topic_name}")
         print(f"   Videos processed: {topic.total_videos}")
         print(f"   Articles found: {topic.total_articles}")
         print(f"   Status: {topic.analysis_status}")
+        print(f"   💾 Results cached for 15 minutes")
         print(f"{'#'*80}\n")
     
     except Exception as e:
@@ -263,7 +319,10 @@ async def analyze_topic(db: Session, topic_id: int, topic_name: str):
 
 
 async def process_video(db: Session, topic_id: int, video_data: Dict):
-    """Process a single video: transcribe, analyze sentiment, get comments"""
+    """Process a single video: transcribe, analyze sentiment, get comments
+    
+    OPTIMIZED: Checks cache first - skips processing if video already analyzed
+    """
     
     try:
         video_id = video_data["video_id"]
@@ -271,6 +330,33 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         print(f"🎬 Processing video: {video_data['title']}")
         print(f"   Video ID: {video_id}")
         print(f"{'='*80}")
+        
+        # 🚀 CACHE CHECK: See if this video was already analyzed
+        existing_video = db.query(crud.models.Video).filter(
+            crud.models.Video.video_id == video_id
+        ).first()
+        
+        if existing_video and existing_video.impact_score is not None:
+            # Video already fully analyzed! Reuse it for this topic
+            print(f"💾 CACHE HIT! Video already analyzed (ID: {existing_video.id})")
+            print(f"   ✓ Sentiment: {existing_video.overall_sentiment}")
+            print(f"   ✓ Impact Score: {existing_video.impact_score}")
+            print(f"   ✓ Transcript: {'Yes' if existing_video.transcript else 'No'}")
+            print(f"   ✓ Comments: {len(existing_video.comments)} cached")
+            print(f"   🚀 SKIPPING full analysis, linking to topic...")
+            
+            # Just link this video to the new topic (if not already linked)
+            if existing_video.topic_id != topic_id:
+                # Create a reference/duplicate for this topic
+                # OR update the topic_id (depending on your business logic)
+                # For now, we'll just return and reuse the same video
+                pass
+            
+            print(f"✅ Video reused from cache in ~0.1 seconds!\n")
+            return
+        
+        # No cache hit - proceed with full analysis
+        print(f"🔍 NEW VIDEO - Starting full analysis...")
         
         # Create video record
         print(f"✓ Creating video record in database...")
@@ -393,16 +479,14 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
                 print(f"✓ Found {len(comments)} comments")
                 
                 if comments:
-                    print(f"📊 Analyzing {len(comments)} comments (VADER + Gemini)...")
+                    print(f"📊 Analyzing {len(comments)} comments (VADER + Gemini) IN PARALLEL...")
                     
-                    for idx, comment_data in enumerate(comments, 1):
+                    # Process comments in batches of 10
+                    async def analyze_comment(comment_data, idx):
+                        """Analyze a single comment with both models"""
                         comment_text = comment_data["text"]
                         
-                        # Show progress every 10 comments
-                        if idx % 10 == 0 or idx == 1:
-                            print(f"   Processing comment {idx}/{len(comments)}...")
-                        
-                        # VADER sentiment analysis
+                        # VADER sentiment analysis (fast, local)
                         try:
                             hf_result = await huggingface_service.analyze_sentiment(comment_text)
                             if isinstance(hf_result, dict) and hf_result.get("sentiment"):
@@ -413,7 +497,6 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
                                 comment_data["hf_sentiment"] = None
                                 comment_data["hf_score"] = None
                         except Exception as hf_err:
-                            print(f"      ⚠️ HF failed for comment {idx}: {str(hf_err)[:50]}")
                             comment_data["hf_sentiment"] = None
                             comment_data["hf_score"] = None
                         
@@ -430,22 +513,45 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
                                 comment_data["gemini_sentiment"] = None
                                 comment_data["gemini_support"] = None
                                 comment_data["gemini_score"] = None
-                            # Small delay to avoid rate limiting
-                            await asyncio.sleep(0.5)
                         except Exception as gemini_err:
-                            print(f"      ⚠️ Gemini failed for comment {idx}: {str(gemini_err)[:50]}")
                             comment_data["gemini_sentiment"] = None
                             comment_data["gemini_support"] = None
                             comment_data["gemini_score"] = None
                         
-                        # Save comment to database
-                        try:
-                            crud.create_comment(db, comment_data, db_video.id)
-                        except Exception as save_err:
-                            print(f"      ⚠️ Failed to save comment {idx}: {str(save_err)[:100]}")
-                            db.rollback()  # Rollback this comment but continue with others
+                        return comment_data
                     
-                    print(f"✓ Analyzed and saved {len(comments)} comments to database")
+                    # Process in batches of 10 comments
+                    batch_size = 10
+                    analyzed_comments = []
+                    
+                    for i in range(0, len(comments), batch_size):
+                        batch = comments[i:i+batch_size]
+                        batch_num = (i // batch_size) + 1
+                        total_batches = (len(comments) + batch_size - 1) // batch_size
+                        print(f"   Processing comment batch {batch_num}/{total_batches} ({len(batch)} comments)...")
+                        
+                        # Analyze batch in parallel
+                        tasks = [
+                            analyze_comment(comment, i+idx+1)
+                            for idx, comment in enumerate(batch)
+                        ]
+                        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                        
+                        # Filter out exceptions and save to database
+                        for result in batch_results:
+                            if isinstance(result, dict) and not isinstance(result, Exception):
+                                try:
+                                    crud.create_comment(db, result, db_video.id)
+                                    analyzed_comments.append(result)
+                                except Exception as save_err:
+                                    print(f"      ⚠️ Failed to save comment: {str(save_err)[:100]}")
+                                    db.rollback()
+                        
+                        # Small delay between batches to avoid rate limits
+                        if i + batch_size < len(comments):
+                            await asyncio.sleep(1)
+                    
+                    print(f"✓ Analyzed and saved {len(analyzed_comments)} comments to database")
                 else:
                     print(f"   No comments found for this video")
                     

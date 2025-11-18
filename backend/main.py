@@ -9,6 +9,7 @@ from . import models
 from . import schemas
 from . import crud
 from . import pipeline
+from . import cache_service
 
 load_dotenv()
 
@@ -483,11 +484,47 @@ async def clear_topic_data(topic_id: int, db: Session = Depends(get_db)):
         db.query(models.Video).filter(models.Video.topic_id == topic_id).delete()
         db.query(models.NewsArticle).filter(models.NewsArticle.topic_id == topic_id).delete()
         
+        # Invalidate cache for this topic
+        cache_service.invalidate_topic_cache(topic.topic_name)
+        
         db.commit()
         return {"message": f"All data cleared for topic '{topic.topic_name}'"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error clearing topic data: {str(e)}")
+
+
+# CACHE MANAGEMENT ENDPOINTS
+@app.get("/api/admin/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics"""
+    stats = cache_service.get_cache_stats()
+    return {
+        "cache_stats": stats,
+        "message": "In-memory cache statistics"
+    }
+
+
+@app.post("/api/admin/cache/clear")
+async def clear_cache():
+    """Clear all cache entries"""
+    cache_service.clear_all_cache()
+    return {"message": "All cache cleared successfully"}
+
+
+@app.delete("/api/admin/cache/topic/{topic_name}")
+async def invalidate_topic_cache_endpoint(topic_name: str):
+    """Invalidate cache for a specific topic"""
+    cache_service.invalidate_topic_cache(topic_name)
+    return {"message": f"Cache invalidated for topic: {topic_name}"}
+
+
+@app.post("/api/admin/cache/cleanup")
+async def cleanup_expired_cache():
+    """Remove expired cache entries"""
+    cache = cache_service.get_cache()
+    removed = cache.cleanup_expired()
+    return {"message": f"Removed {removed} expired cache entries"}
 
 
 if __name__ == "__main__":
