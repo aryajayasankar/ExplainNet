@@ -75,6 +75,9 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         
         yield {"status": "progress", "message": f"✅ Found {len(videos)} videos", "type": "success"}
         
+        # Store original search count
+        original_video_count = len(videos)
+        
         # Step 2: Get video details and filter
         yield {"status": "progress", "message": "📋 Fetching video details...", "type": "info"}
         video_ids = [v["video_id"] for v in videos]
@@ -189,6 +192,9 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
             a["source_type"] = "historical"
         all_articles = recent_articles + historical_articles
         
+        # Store original search count
+        original_article_count = len(all_articles)
+        
         if len(all_articles) == 0:
             yield {"status": "progress", "message": "⚠️ No news articles found", "type": "warning"}
         else:
@@ -247,8 +253,10 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         unique_sources = len(set([a.get("source", "") for a in all_articles if a.get("source")]))
         
         topic = crud.get_topic(db, topic_id)
-        topic.total_videos = len(videos)
-        topic.total_articles = len(all_articles)
+        topic.videos_found = original_video_count  # Original search results
+        topic.articles_found = original_article_count  # Original search results
+        topic.total_videos = len(videos)  # Successfully analyzed videos
+        topic.total_articles = len(all_articles)  # Successfully analyzed articles
         topic.unique_sources_count = unique_sources
         
         # Calculate average impact score

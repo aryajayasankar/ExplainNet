@@ -12,8 +12,10 @@ class Topic(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     last_analyzed_at = Column(DateTime(timezone=True), nullable=True)
     analysis_status = Column(String(50), default="pending", index=True)  # pending, processing, completed, failed
-    total_videos = Column(Integer, default=0)
-    total_articles = Column(Integer, default=0)
+    total_videos = Column(Integer, default=0)  # Number of videos successfully analyzed
+    total_articles = Column(Integer, default=0)  # Number of articles successfully analyzed
+    videos_found = Column(Integer, default=0)  # Original search result count
+    articles_found = Column(Integer, default=0)  # Original search result count
     overall_sentiment = Column(String(50), nullable=True)
     overall_impact_score = Column(Float, nullable=True)
     error_message = Column(Text, nullable=True)

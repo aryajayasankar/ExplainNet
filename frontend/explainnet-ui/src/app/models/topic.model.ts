@@ -6,6 +6,8 @@ export interface Topic {
   analysis_status: AnalysisStatus;
   total_videos: number;
   total_articles: number;
+  videos_found: number;
+  articles_found: number;
   overall_sentiment: string;
   overall_impact_score: number;
   created_at: string;

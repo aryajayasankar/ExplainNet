@@ -32,6 +32,8 @@ class TopicResponse(BaseModel):
     analysis_status: AnalysisStatus
     total_videos: int
     total_articles: int
+    videos_found: int = 0
+    articles_found: int = 0
     overall_sentiment: Optional[SentimentType]
     overall_impact_score: Optional[float]
     error_message: Optional[str]
