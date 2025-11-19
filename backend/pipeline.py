@@ -140,6 +140,7 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
             # Check queue for transcription logs (non-blocking)
             try:
                 log_message = transcription_log_queue.get_nowait()
+                print(f"[PIPELINE DEBUG] Got transcription log from queue: {log_message}")
                 yield log_message  # Yield transcription log directly
             except asyncio.QueueEmpty:
                 pass
@@ -298,11 +299,14 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
     
     def log_callback(message: str):
         """Callback to put transcription logs in queue"""
+        print(f"[CALLBACK DEBUG] log_callback called with: {message}")
         if transcription_log_queue:
             # Put message in queue (will be consumed by analyze_topic_streaming)
             try:
                 transcription_log_queue.put_nowait({"message": message})
-            except:
+                print(f"[CALLBACK DEBUG] Message added to queue successfully")
+            except Exception as e:
+                print(f"[CALLBACK DEBUG] Failed to add to queue: {e}")
                 pass  # Queue might be full, skip
     
     try:
