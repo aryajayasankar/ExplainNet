@@ -56,18 +56,18 @@
         </div>
         
         <div class="hero-stat-item">
-          <span class="stat-icon">{{ getSentimentIcon(topic.overall_sentiment) }}</span>
-          <div class="stat-details">
-            <span class="stat-value">{{ topic.overall_sentiment || 'N/A' }}</span>
-            <span class="stat-label">Sentiment</span>
-          </div>
-        </div>
-        
-        <div class="hero-stat-item">
           <span class="stat-icon">⚡</span>
           <div class="stat-details">
             <span class="stat-value">{{ averageImpact | number:'1.1-1' }}</span>
             <span class="stat-label">Avg Impact</span>
+          </div>
+        </div>
+        
+        <div class="hero-stat-item">
+          <span class="stat-icon">{{ getSentimentIcon(topic.overall_sentiment) }}</span>
+          <div class="stat-details">
+            <span class="stat-value">{{ topic.overall_sentiment || 'N/A' }}</span>
+            <span class="stat-label">Sentiment</span>
           </div>
         </div>
       </div>
@@ -334,21 +334,21 @@
         <div class="insight-column">
           <h3>🔍 Key Trends</h3>
           <ul class="insight-list">
-            <li *ngFor="let trend of aiSummary.key_trends">{{ trend }}</li>
+            <li *ngFor="let trend of aiSummary.key_trends" [innerHTML]="formatMarkdown(trend)"></li>
           </ul>
         </div>
 
         <div class="insight-column">
           <h3>💡 Surprising Findings</h3>
           <ul class="insight-list">
-            <li *ngFor="let finding of aiSummary.surprising_findings">{{ finding }}</li>
+            <li *ngFor="let finding of aiSummary.surprising_findings" [innerHTML]="formatMarkdown(finding)"></li>
           </ul>
         </div>
 
         <div class="insight-column">
           <h3>🎯 Recommendations</h3>
           <ul class="insight-list">
-            <li *ngFor="let rec of aiSummary.recommendations">{{ rec }}</li>
+            <li *ngFor="let rec of aiSummary.recommendations" [innerHTML]="formatMarkdown(rec)"></li>
           </ul>
         </div>
       </div>
@@ -397,12 +397,20 @@
             <span>🔤 {{ videoTranscript.language?.toUpperCase() }}</span>
           </div>
         </div>
-        <p *ngIf="!videoTranscript" class="loading-text">Loading transcript...</p>
+        <div *ngIf="!videoTranscript && !transcriptLoading && transcriptError" class="no-data-state error">
+          <span class="no-data-icon">❌</span>
+          <h4>Transcript Unavailable</h4>
+          <p>{{ transcriptError }}</p>
+        </div>
+        <div *ngIf="transcriptLoading" class="loading-state">
+          <div class="spinner-small"></div>
+          <p>Loading transcript...</p>
+        </div>
       </div>
 
       <!-- Sentiment Tab -->
       <div *ngIf="modalTab === 'sentiment'">
-        <div class="sentiment-grid">
+        <div class="sentiment-grid" *ngIf="videoSentiments && videoSentiments.length > 0">
           <div class="sentiment-card" *ngFor="let sentiment of videoSentiments">
             <h4>{{ sentiment.model_name === 'vader' ? '📊 VADER' : '✨ Gemini' }}</h4>
             <div class="sentiment-result" [ngClass]="getSentimentClass(sentiment.sentiment)">
@@ -414,13 +422,25 @@
                 <div class="bar-fill" [style.width.%]="sentiment.confidence * 100"></div>
               </div>
             </div>
+            <p class="sentiment-justification" *ngIf="sentiment.gemini_justification || sentiment.hf_justification">
+              {{ sentiment.gemini_justification || sentiment.hf_justification }}
+            </p>
           </div>
+        </div>
+        <div *ngIf="!sentimentsLoading && (!videoSentiments || videoSentiments.length === 0)" class="no-data-state">
+          <span class="no-data-icon">😐</span>
+          <h4>No Sentiment Analysis</h4>
+          <p>Sentiment analysis was not performed for this video. This usually happens when transcription failed or the video had no speech.</p>
+        </div>
+        <div *ngIf="sentimentsLoading" class="loading-state">
+          <div class="spinner-small"></div>
+          <p>Loading sentiments...</p>
         </div>
       </div>
 
       <!-- Comments Tab -->
       <div *ngIf="modalTab === 'comments'">
-        <div class="comments-list">
+        <div class="comments-list" *ngIf="videoComments && videoComments.length > 0">
           <div class="comment-item" *ngFor="let comment of videoComments">
             <div class="comment-header">
               <span class="comment-author">{{ comment.author }}</span>
@@ -428,14 +448,23 @@
             </div>
             <p class="comment-text">{{ comment.text }}</p>
             <div class="comment-sentiments">
-              <span class="sentiment-tag vader" [ngClass]="getSentimentClass(comment.hf_sentiment)">
+              <span class="sentiment-tag vader" [ngClass]="getSentimentClass(comment.hf_sentiment)" *ngIf="comment.hf_sentiment">
                 VADER: {{ comment.hf_sentiment }}
               </span>
-              <span class="sentiment-tag gemini" [ngClass]="getSentimentClass(comment.gemini_sentiment)">
+              <span class="sentiment-tag gemini" [ngClass]="getSentimentClass(comment.gemini_sentiment)" *ngIf="comment.gemini_sentiment">
                 Gemini: {{ comment.gemini_sentiment }}
               </span>
             </div>
           </div>
+        </div>
+        <div *ngIf="!commentsLoading && (!videoComments || videoComments.length === 0)" class="no-data-state">
+          <span class="no-data-icon">💬</span>
+          <h4>No Comments Found</h4>
+          <p>This video has no comments, or comments may be disabled by the creator.</p>
+        </div>
+        <div *ngIf="commentsLoading" class="loading-state">
+          <div class="spinner-small"></div>
+          <p>Loading comments...</p>
         </div>
       </div>
     </div>

@@ -8,9 +8,17 @@ import { ThemeService } from '../../services/theme.service';
 interface LogMessage {
   id: number;
   text: string;
-  type: 'info' | 'success' | 'error' | 'progress' | 'emoji';
+  type: 'info' | 'success' | 'error' | 'progress' | 'emoji' | 'transcription';
   timestamp: Date;
   visible: boolean;
+  isTranscriptionLog?: boolean;
+}
+
+interface TranscriptionState {
+  isActive: boolean;
+  startTime: number | null;
+  elapsedTime: string;
+  logs: LogMessage[];
 }
 
 type AppState = 'chat' | 'processing' | 'complete' | 'error';
@@ -36,6 +44,21 @@ export class TerminalComponent implements OnInit, OnDestroy {
   private logIdCounter = 0;
   private eventSource: EventSource | null = null;
   isProcessing = false;
+  
+  // Timer tracking
+  analysisStartTime: number | null = null;
+  analysisEndTime: number | null = null;
+  elapsedTime = '0:00';
+  private timerInterval: any = null;
+  
+  // Transcription state
+  transcriptionState: TranscriptionState = {
+    isActive: false,
+    startTime: null,
+    elapsedTime: '0:00',
+    logs: []
+  };
+  private transcriptionTimerInterval: any = null;
 
   constructor(
     private router: Router,
@@ -49,6 +72,9 @@ export class TerminalComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     if (isPlatformBrowser(this.platformId)) {
+      // Restore state from sessionStorage on page refresh
+      this.restoreStateFromStorage();
+      
       setTimeout(() => {
         document.querySelector('.chat-container')?.classList.add('visible');
       }, 100);
@@ -57,6 +83,11 @@ export class TerminalComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.closeEventSource();
+    this.stopTimer();
+    if (this.transcriptionTimerInterval) {
+      clearInterval(this.transcriptionTimerInterval);
+      this.transcriptionTimerInterval = null;
+    }
   }
 
   toggleTheme(): void {
@@ -77,9 +108,15 @@ export class TerminalComponent implements OnInit, OnDestroy {
     this.logs = [];
     this.cdr.markForCheck();
 
+    // Start timer
+    this.startTimer();
+
     // Add initial greeting
     this.addLog(`🎯 Starting analysis for: "${this.topicInput}"`, 'info');
     this.addLog('🔄 Initializing ExplainNet AI...', 'info');
+
+    // Save initial state to sessionStorage
+    this.saveStateToStorage();
 
     // Start streaming
     this.connectToStream();
@@ -97,6 +134,15 @@ export class TerminalComponent implements OnInit, OnDestroy {
       try {
         const data = JSON.parse(event.data);
         
+        // DEBUG: Log all messages to console
+        console.log('SSE Message received:', data);
+        
+        // Capture topic_id as soon as it's available
+        if (data.topic_id && !this.createdTopicId) {
+          this.createdTopicId = data.topic_id;
+          this.saveStateToStorage();
+        }
+        
         if (data.status === 'complete') {
           this.createdTopicId = data.topic_id;
           this.handleCompletion();
@@ -108,7 +154,18 @@ export class TerminalComponent implements OnInit, OnDestroy {
           this.closeEventSource();
           this.cdr.markForCheck();
         } else if (data.message) {
-          this.addLog(data.message, data.type || 'info');
+          // Check for transcription special markers
+          if (data.message.includes('[TRANSCRIPTION_START]')) {
+            this.startTranscriptionSubProcess();
+          } else if (data.message.includes('[TRANSCRIPTION_END]')) {
+            this.endTranscriptionSubProcess();
+          } else if (data.message.includes('[TRANSCRIPTION_LOG]')) {
+            // Extract the actual message after the marker
+            const cleanMessage = data.message.replace('[TRANSCRIPTION_LOG]', '').trim();
+            this.addTranscriptionLog(cleanMessage);
+          } else {
+            this.addLog(data.message, data.type || 'info');
+          }
         }
       } catch (error) {
         console.error('Error parsing SSE message:', error);
@@ -139,6 +196,9 @@ export class TerminalComponent implements OnInit, OnDestroy {
     this.logs.push(log);
     this.cdr.markForCheck();
 
+    // Save state after each log update
+    this.saveStateToStorage();
+
     // Animate in with slight delay
     setTimeout(() => {
       log.visible = true;
@@ -148,14 +208,35 @@ export class TerminalComponent implements OnInit, OnDestroy {
   }
 
   private handleCompletion(): void {
+    // Stop timer and record end time
+    this.stopTimer();
+    this.analysisEndTime = Date.now();
+    
+    const totalSeconds = Math.floor((this.analysisEndTime - (this.analysisStartTime || 0)) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    
+    // Save processing time to backend
+    if (this.createdTopicId && totalSeconds > 0) {
+      this.apiService.updateTopic(this.createdTopicId, { 
+        processing_time_seconds: totalSeconds 
+      }).subscribe({
+        next: () => console.log('Processing time saved'),
+        error: (err) => console.error('Error saving processing time:', err)
+      });
+    }
+    
     setTimeout(() => {
       this.addLog('', 'info');
       this.addLog('✅ Analysis Complete!', 'success');
+      this.addLog(`⏱️ Total time: ${timeStr}`, 'success');
       this.addLog(`📊 Your insights are ready to explore!`, 'success');
       
       setTimeout(() => {
         this.currentState = 'complete';
         this.isProcessing = false;
+        this.saveStateToStorage(); // Save complete state
         this.cdr.markForCheck();
       }, 500);
     }, 300);
@@ -179,24 +260,67 @@ export class TerminalComponent implements OnInit, OnDestroy {
     }
   }
 
-  cancelAnalysis(): void {
-    if (this.eventSource) {
-      this.closeEventSource();
-      
-      // Call backend to cancel
-      if (this.createdTopicId) {
-        this.apiService.deleteTopic(this.createdTopicId).subscribe({
-          next: () => console.log('Analysis cancelled'),
-          error: (err) => console.error('Error cancelling:', err)
-        });
-      }
-      
-      this.addLog('⚠️ Analysis cancelled by user', 'error');
-      setTimeout(() => {
-        this.resetToChat();
-      }, 1000);
+  // State persistence methods
+  private saveStateToStorage(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const state = {
+      currentState: this.currentState,
+      topicInput: this.topicInput,
+      logs: this.logs,
+      createdTopicId: this.createdTopicId,
+      isProcessing: this.isProcessing,
+      analysisStartTime: this.analysisStartTime,
+      elapsedTime: this.elapsedTime
+    };
+
+    try {
+      sessionStorage.setItem('terminalState', JSON.stringify(state));
+    } catch (error) {
+      console.error('Failed to save state:', error);
     }
   }
+
+  private restoreStateFromStorage(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    try {
+      const savedState = sessionStorage.getItem('terminalState');
+      if (!savedState) return;
+
+      const state = JSON.parse(savedState);
+      
+      // Restore state
+      this.currentState = state.currentState || 'chat';
+      this.topicInput = state.topicInput || '';
+      this.logs = state.logs || [];
+      this.createdTopicId = state.createdTopicId || null;
+      this.isProcessing = state.isProcessing || false;
+      this.analysisStartTime = state.analysisStartTime || null;
+      this.elapsedTime = state.elapsedTime || '0:00';
+
+      // If was processing and not complete/error, reconnect to stream
+      if (this.isProcessing && this.createdTopicId && 
+          this.currentState === 'processing') {
+        this.addLog('🔄 Reconnected after page refresh', 'info');
+        this.connectToStream();
+        this.startTimer();
+      }
+      
+      // If state is complete or error, don't reconnect - just display saved logs
+      // This allows users to refresh on complete page and see results
+
+      // Mark all logs as visible immediately on restore
+      this.logs.forEach(log => log.visible = true);
+      
+      this.cdr.markForCheck();
+    } catch (error) {
+      console.error('Failed to restore state:', error);
+      sessionStorage.removeItem('terminalState');
+    }
+  }
+
+
 
   resetToChat(): void {
     this.currentState = 'chat';
@@ -205,6 +329,14 @@ export class TerminalComponent implements OnInit, OnDestroy {
     this.createdTopicId = null;
     this.isProcessing = false;
     this.closeEventSource();
+    this.stopTimer();
+    this.resetTimer();
+    
+    // Clear sessionStorage when resetting to chat
+    if (isPlatformBrowser(this.platformId)) {
+      sessionStorage.removeItem('terminalState');
+    }
+    
     this.cdr.markForCheck();
   }
 
@@ -224,8 +356,109 @@ export class TerminalComponent implements OnInit, OnDestroy {
       'success': '✓',
       'error': '✗',
       'progress': '→',
-      'emoji': ''
+      'emoji': '',
+      'transcription': '🎙️'
     };
     return icons[type] || '•';
+  }
+  
+  // Transcription subprocess management
+  private startTranscriptionSubProcess(): void {
+    this.transcriptionState = {
+      isActive: true,
+      startTime: Date.now(),
+      elapsedTime: '0:00',
+      logs: []
+    };
+    
+    // Start transcription timer
+    this.transcriptionTimerInterval = setInterval(() => {
+      if (this.transcriptionState.startTime) {
+        const elapsed = Math.floor((Date.now() - this.transcriptionState.startTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        this.transcriptionState.elapsedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        this.cdr.markForCheck();
+      }
+    }, 1000);
+    
+    this.cdr.markForCheck();
+  }
+  
+  private endTranscriptionSubProcess(): void {
+    // Stop transcription timer
+    if (this.transcriptionTimerInterval) {
+      clearInterval(this.transcriptionTimerInterval);
+      this.transcriptionTimerInterval = null;
+    }
+    
+    // Mark as inactive after brief delay to show completion
+    setTimeout(() => {
+      this.transcriptionState.isActive = false;
+      this.transcriptionState.logs = [];
+      this.cdr.markForCheck();
+    }, 500);
+  }
+  
+  private addTranscriptionLog(text: string): void {
+    const log: LogMessage = {
+      id: this.logIdCounter++,
+      text,
+      type: 'transcription',
+      timestamp: new Date(),
+      visible: false,
+      isTranscriptionLog: true
+    };
+    
+    this.transcriptionState.logs.push(log);
+    this.cdr.markForCheck();
+    
+    // Animate in
+    setTimeout(() => {
+      log.visible = true;
+      this.cdr.markForCheck();
+    }, 50);
+  }
+  
+  // Timer management methods
+  private startTimer(): void {
+    this.analysisStartTime = Date.now();
+    this.analysisEndTime = null;
+    this.elapsedTime = '0:00';
+    
+    // Update timer every second
+    this.timerInterval = setInterval(() => {
+      if (this.analysisStartTime) {
+        const elapsed = Math.floor((Date.now() - this.analysisStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        this.elapsedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        this.cdr.markForCheck();
+      }
+    }, 1000);
+  }
+  
+  private stopTimer(): void {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+  
+  private resetTimer(): void {
+    this.analysisStartTime = null;
+    this.analysisEndTime = null;
+    this.elapsedTime = '0:00';
+  }
+  
+  getFormattedDuration(): string {
+    if (!this.analysisStartTime) return '0:00';
+    
+    const endTime = this.analysisEndTime || Date.now();
+    const totalSeconds = Math.floor((endTime - this.analysisStartTime) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 }

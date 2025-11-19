@@ -110,6 +110,10 @@
           <span class="date-icon">🕐</span>
           {{ topic.created_at | date:'MMM d, y' }}
         </span>
+        <span class="processing-time" *ngIf="topic.processing_time_seconds">
+          <span class="time-icon">⏱️</span>
+          {{ formatProcessingTime(topic.processing_time_seconds) }}
+        </span>
       </div>
 
       <div class="processing-bar" *ngIf="topic.analysis_status === 'processing'">

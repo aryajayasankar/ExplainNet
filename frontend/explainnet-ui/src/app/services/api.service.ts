@@ -55,6 +55,12 @@ export class ApiService {
       tap(() => this.invalidateTopicsCache()) // Invalidate cache on delete
     );
   }
+  
+  updateTopic(id: number, data: Partial<Topic>): Observable<Topic> {
+    return this.http.patch<Topic>(`${this.baseUrl}/topics/${id}`, data).pipe(
+      tap(() => this.invalidateTopicsCache()) // Invalidate cache on update
+    );
+  }
 
   // Video endpoints
   getVideosByTopic(topicId: number): Observable<Video[]> {

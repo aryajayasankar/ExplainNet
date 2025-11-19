@@ -35,6 +35,12 @@ export class AnalysisComponent implements OnInit {
   videoComments: Comment[] = [];
   videoTranscript: Transcript | null = null;
   
+  // Loading states for modal
+  transcriptLoading = false;
+  sentimentsLoading = false;
+  commentsLoading = false;
+  transcriptError: string | null = null;
+  
   searchTerm = '';
   sortBy = 'impact_score';
   sortDirection = 'desc';
@@ -210,19 +216,64 @@ export class AnalysisComponent implements OnInit {
     this.selectedVideo = video;
     this.showVideoModal = true;
     
+    // Reset states
+    this.videoSentiments = [];
+    this.videoComments = [];
+    this.videoTranscript = null;
+    this.transcriptError = null;
+    
+    // Load sentiments
+    this.sentimentsLoading = true;
     this.apiService.getSentimentsByVideo(video.id).subscribe({
-      next: (sentiments) => this.videoSentiments = sentiments,
-      error: (err) => console.error('Error loading sentiments:', err)
+      next: (sentiments) => {
+        this.videoSentiments = sentiments;
+        this.sentimentsLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.error('Error loading sentiments:', err);
+        this.sentimentsLoading = false;
+        this.cdr.markForCheck();
+      }
     });
     
+    // Load comments
+    this.commentsLoading = true;
     this.apiService.getCommentsByVideo(video.id).subscribe({
-      next: (comments) => this.videoComments = comments,
-      error: (err) => console.error('Error loading comments:', err)
+      next: (comments) => {
+        this.videoComments = comments;
+        this.commentsLoading = false;
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.error('Error loading comments:', err);
+        this.commentsLoading = false;
+        this.cdr.markForCheck();
+      }
     });
     
+    // Load transcript
+    this.transcriptLoading = true;
     this.apiService.getTranscriptByVideo(video.id).subscribe({
-      next: (transcript) => this.videoTranscript = transcript,
-      error: (err) => console.error('Error loading transcript:', err)
+      next: (transcript) => {
+        this.videoTranscript = transcript;
+        this.transcriptLoading = false;
+        this.transcriptError = null;
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.error('Error loading transcript:', err);
+        this.transcriptLoading = false;
+        // Extract error message from backend
+        if (err.error && err.error.detail) {
+          this.transcriptError = err.error.detail;
+        } else if (err.status === 404) {
+          this.transcriptError = 'Transcript not available for this video';
+        } else {
+          this.transcriptError = 'Failed to load transcript';
+        }
+        this.cdr.markForCheck();
+      }
     });
   }
 
@@ -232,6 +283,10 @@ export class AnalysisComponent implements OnInit {
     this.videoSentiments = [];
     this.videoComments = [];
     this.videoTranscript = null;
+    this.transcriptLoading = false;
+    this.sentimentsLoading = false;
+    this.commentsLoading = false;
+    this.transcriptError = null;
   }
 
   setSortBy(field: string) {
@@ -600,6 +655,13 @@ export class AnalysisComponent implements OnInit {
 
   getRandomOpacity(): number {
     return 0.3 + Math.random() * 0.7;
+  }
+
+  // Convert markdown-style bold syntax (**text**) to HTML
+  formatMarkdown(text: string): string {
+    if (!text) return '';
+    // Replace **bold** with <strong>bold</strong>
+    return text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
 
   Math = Math;

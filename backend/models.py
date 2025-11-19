@@ -24,6 +24,9 @@ class Topic(Base):
     # AI Synthesis Cache
     ai_synthesis_cache = Column(Text, nullable=True)  # JSON string of cached AI analysis
     ai_synthesis_generated_at = Column(DateTime(timezone=True), nullable=True)  # When cache was generated
+    
+    # Processing Time
+    processing_time_seconds = Column(Integer, nullable=True)  # Time taken to analyze in seconds
 
     # Relationships
     videos = relationship("Video", back_populates="topic", cascade="all, delete-orphan")
