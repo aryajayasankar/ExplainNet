@@ -78,12 +78,10 @@ async def create_topic_streaming(
     import json
     import asyncio
     
-    global active_analysis_tasks
     topic_id = None
-    analysis_generator = None
     
     async def event_stream():
-        nonlocal topic_id, analysis_generator
+        nonlocal topic_id
         try:
             # Step 1: Create topic in database
             yield f"data: {json.dumps({'status': 'progress', 'message': '📝 Creating topic...', 'type': 'info'})}\n\n"
@@ -91,10 +89,6 @@ async def create_topic_streaming(
             
             db_topic = crud.create_topic(db, schemas.TopicCreate(topic_name=topic))
             topic_id = db_topic.id
-            
-            # Store a cancellation event for this topic
-            cancel_event = asyncio.Event()
-            active_analysis_tasks[topic_id] = cancel_event
             
             yield f"data: {json.dumps({'status': 'progress', 'message': f'✅ Topic created: {topic}', 'type': 'success', 'topic_id': topic_id})}\n\n"
             await asyncio.sleep(0.2)
