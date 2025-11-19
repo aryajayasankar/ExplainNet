@@ -40,10 +40,26 @@
       
       <div class="hero-stats">
         <div class="hero-stat-item">
-          <span class="stat-icon">🎥</span>
+          <span class="stat-icon">🔍</span>
+          <div class="stat-details">
+            <span class="stat-value">{{ topic.total_videos || 0 }}</span>
+            <span class="stat-label">Videos Found</span>
+          </div>
+        </div>
+        
+        <div class="hero-stat-item">
+          <span class="stat-icon">📹</span>
           <div class="stat-details">
             <span class="stat-value">{{ videos.length }}</span>
-            <span class="stat-label">Videos</span>
+            <span class="stat-label">Videos Analyzed</span>
+          </div>
+        </div>
+        
+        <div class="hero-stat-item">
+          <span class="stat-icon">🔍</span>
+          <div class="stat-details">
+            <span class="stat-value">{{ topic.total_articles || 0 }}</span>
+            <span class="stat-label">Articles Found</span>
           </div>
         </div>
         
@@ -51,7 +67,7 @@
           <span class="stat-icon">📰</span>
           <div class="stat-details">
             <span class="stat-value">{{ articles.length }}</span>
-            <span class="stat-label">Articles</span>
+            <span class="stat-label">Articles Analyzed</span>
           </div>
         </div>
         
@@ -370,8 +386,23 @@
     <button class="modal-close" (click)="closeVideoModal()">×</button>
     
     <div class="modal-header">
-      <img [src]="selectedVideo.thumbnail_url" alt="Video thumbnail" class="modal-thumbnail">
-      <h2>{{ selectedVideo.title }}</h2>
+      <a [href]="'https://www.youtube.com/watch?v=' + selectedVideo.video_id" 
+         target="_blank" 
+         class="modal-thumbnail-link"
+         title="Open in YouTube">
+        <img [src]="selectedVideo.thumbnail_url" alt="Video thumbnail" class="modal-thumbnail">
+        <div class="youtube-overlay">
+          <span class="youtube-icon">▶</span>
+        </div>
+      </a>
+      <h2>
+        <a [href]="'https://www.youtube.com/watch?v=' + selectedVideo.video_id" 
+           target="_blank" 
+           class="video-title-link"
+           title="Open in YouTube">
+          {{ selectedVideo.title }}
+        </a>
+      </h2>
       <p class="modal-channel">{{ selectedVideo.channel_title }}</p>
     </div>
     

@@ -1407,19 +1407,74 @@
     padding: 2rem;
     border-bottom: 1px solid #e5e7eb;
     
-    .modal-thumbnail {
+    .modal-thumbnail-link {
+      display: block;
+      position: relative;
       width: 100%;
       border-radius: 12px;
       margin-bottom: 1.25rem;
+      overflow: hidden;
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      
+      &:hover {
+        transform: scale(1.02);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        
+        .youtube-overlay {
+          opacity: 1;
+        }
+      }
+    }
+    
+    .modal-thumbnail {
+      width: 100%;
+      display: block;
+      border-radius: 12px;
+    }
+    
+    .youtube-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      
+      .youtube-icon {
+        font-size: 4rem;
+        color: #ff0000;
+        background: white;
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding-left: 8px;
+      }
     }
     
     h2 {
       font-family: 'Inter', sans-serif;
       font-size: 1.5rem;
       font-weight: 700;
-      color: #1e293b;
       margin: 0 0 0.5rem;
       line-height: 1.4;
+      
+      .video-title-link {
+        color: #1e293b;
+        text-decoration: none;
+        transition: color 0.2s ease;
+        
+        &:hover {
+          color: #3b82f6;
+        }
+      }
     }
     
     .modal-channel {

@@ -70,14 +70,19 @@ export class AnalysisComponent implements OnInit {
     this.apiService.getTopic(this.topicId).subscribe({
       next: (topic) => {
         this.topic = topic;
+        console.log('📊 Topic loaded:', topic);
+        console.log('📊 Overall sentiment:', topic.overall_sentiment);
+        console.log('📊 Overall impact score:', topic.overall_impact_score);
+        console.log('📊 Total videos:', topic.total_videos);
+        console.log('📊 Total articles:', topic.total_articles);
         this.loadVideos();
         this.loadArticles();
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
       error: (err) => {
         console.error('Error loading topic:', err);
         this.loading = false;
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       }
     });
   }
@@ -86,12 +91,15 @@ export class AnalysisComponent implements OnInit {
     this.apiService.getVideosByTopic(this.topicId).subscribe({
       next: (videos) => {
         this.videos = videos;
+        console.log(`📹 Loaded ${videos.length} videos`);
+        console.log('📹 Video impact scores:', videos.map(v => v.impact_score));
+        console.log('📹 Calculated average impact:', this.averageImpact);
         this.loading = false;
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
       error: (err) => {
         console.error('Error loading videos:', err);
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       }
     });
   }

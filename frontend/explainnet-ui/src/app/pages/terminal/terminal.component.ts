@@ -72,8 +72,28 @@ export class TerminalComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     if (isPlatformBrowser(this.platformId)) {
-      // Restore state from sessionStorage on page refresh
-      this.restoreStateFromStorage();
+      // Check if sessionStorage has any state
+      const savedState = sessionStorage.getItem('terminalState');
+      
+      if (savedState) {
+        // Restore state from sessionStorage (page refresh scenario)
+        this.restoreStateFromStorage();
+      } else {
+        // No saved state - ensure clean slate for new analysis
+        console.log('🆕 No saved state found - starting fresh');
+        this.currentState = 'chat';
+        this.topicInput = '';
+        this.logs = [];
+        this.createdTopicId = null;
+        this.isProcessing = false;
+        this.transcriptionState = {
+          isActive: false,
+          startTime: null,
+          elapsedTime: '0:00',
+          logs: []
+        };
+        this.cdr.detectChanges();
+      }
       
       setTimeout(() => {
         document.querySelector('.chat-container')?.classList.add('visible');
