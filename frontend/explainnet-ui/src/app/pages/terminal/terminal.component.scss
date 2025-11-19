@@ -494,6 +494,30 @@
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
+      max-height: 250px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding-right: 0.5rem;
+      scroll-behavior: smooth;
+      
+      /* Custom scrollbar for yellow theme */
+      &::-webkit-scrollbar {
+        width: 6px;
+      }
+      
+      &::-webkit-scrollbar-track {
+        background: rgba(245, 158, 11, 0.1);
+        border-radius: 3px;
+      }
+      
+      &::-webkit-scrollbar-thumb {
+        background: rgba(245, 158, 11, 0.4);
+        border-radius: 3px;
+        
+        &:hover {
+          background: rgba(245, 158, 11, 0.6);
+        }
+      }
       
       .transcription-log-line {
         color: #fcd34d;

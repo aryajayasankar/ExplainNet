@@ -30,6 +30,7 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
     
     global transcription_log_queue
     transcription_log_queue = asyncio.Queue()
+    print(f"[QUEUE DEBUG] Created queue at: {id(transcription_log_queue)}")
     
     try:
         # Update status to processing
@@ -138,6 +139,7 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         
         while pending:
             # Check queue for transcription logs (non-blocking)
+            print(f"[PIPELINE DEBUG] Checking queue (id: {id(transcription_log_queue)}, size: {transcription_log_queue.qsize()})")
             try:
                 log_message = transcription_log_queue.get_nowait()
                 print(f"[PIPELINE DEBUG] Got transcription log from queue: {log_message}")
@@ -300,11 +302,13 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
     def log_callback(message: str):
         """Callback to put transcription logs in queue"""
         print(f"[CALLBACK DEBUG] log_callback called with: {message}")
+        print(f"[CALLBACK DEBUG] Queue object id: {id(transcription_log_queue)}")
         if transcription_log_queue:
             # Put message in queue (will be consumed by analyze_topic_streaming)
             try:
                 transcription_log_queue.put_nowait({"message": message})
                 print(f"[CALLBACK DEBUG] Message added to queue successfully")
+                print(f"[CALLBACK DEBUG] Queue size now: {transcription_log_queue.qsize()}")
             except Exception as e:
                 print(f"[CALLBACK DEBUG] Failed to add to queue: {e}")
                 pass  # Queue might be full, skip
@@ -326,9 +330,15 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
         video_data_for_db = {k: v for k, v in video_data.items() if k != 'is_valid'}
         db_video = crud.create_video(db, video_data_for_db, topic_id)
         
-        # Transcribe video with callback
+        # Transcribe video with callback (run in thread pool to not block event loop)
         try:
-            transcript_result = transcription_service.transcribe_video(video_id, log_callback=log_callback)
+            loop = asyncio.get_event_loop()
+            transcript_result = await loop.run_in_executor(
+                None, 
+                transcription_service.transcribe_video, 
+                video_id, 
+                log_callback
+            )
             status = transcript_result.get("status", "unknown")
             
             if status == "success" and transcript_result.get("text"):
