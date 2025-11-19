@@ -170,7 +170,121 @@ async def update_topic(topic_id: int, update_data: dict, db: Session = Depends(g
 async def get_topic_videos(topic_id: int, db: Session = Depends(get_db)):
     """Get all videos for a topic"""
     videos = crud.get_videos_by_topic(db, topic_id)
-    return videos
+    print(f"📹 Returning {len(videos)} videos for topic {topic_id}")
+    if videos:
+        print(f"📹 First video emotions: {getattr(videos[0], 'emotions', None) or getattr(videos[0], 'emotions_json', None)}")
+    
+    # Convert to response models and ensure emotions are set
+    response_videos = []
+    for video in videos:
+        video_dict = {
+            "id": video.id,
+            "topic_id": video.topic_id,
+            "video_id": video.video_id,
+            "title": video.title,
+            "channel_name": video.channel_name,
+            "channel_id": video.channel_id,
+            "thumbnail_url": video.thumbnail_url,
+            "published_at": video.published_at,
+            "view_count": video.view_count,
+            "like_count": video.like_count,
+            "comment_count": video.comment_count,
+            "duration": video.duration,
+            "impact_score": video.impact_score,
+            "reach_score": video.reach_score,
+            "engagement_score": video.engagement_score,
+            "sentiment_score": video.sentiment_score,
+            "quality_score": video.quality_score,
+            "influence_score": video.influence_score,
+            "recency_boost": video.recency_boost,
+            "overall_sentiment": video.overall_sentiment,
+            "emotions_json": getattr(video, 'emotions_json', None),
+            "emotions": getattr(video, 'emotions', None) or getattr(video, 'emotions_json', None)
+        }
+        response_videos.append(schemas.VideoResponse(**video_dict))
+    
+    return response_videos
+
+
+@app.get("/api/topics/{topic_id}/videos/gnn")
+async def get_videos_gnn(topic_id: int, db: Session = Depends(get_db)):
+    """Get GNN (Graph Neural Network) data for videos - nodes and connections"""
+    import math
+    
+    videos = crud.get_videos_by_topic(db, topic_id)
+    
+    # Sort by impact score and take top 12
+    sorted_videos = sorted(videos, key=lambda v: v.impact_score or 0, reverse=True)[:12]
+    
+    if not sorted_videos:
+        return {"nodes": [], "edges": []}
+    
+    # Calculate node positions in circular layout
+    center_x = 300
+    center_y = 250
+    radius = 180
+    
+    max_impact = max([v.impact_score or 0 for v in sorted_videos])
+    
+    nodes = []
+    for i, video in enumerate(sorted_videos):
+        angle = (i * 2 * math.pi) / len(sorted_videos) - (math.pi / 2)
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        
+        # Node size based on impact score
+        size = 15 + ((video.impact_score or 0) / max_impact * 25) if max_impact > 0 else 20
+        
+        nodes.append({
+            "id": video.id,
+            "video_id": video.video_id,
+            "title": video.title,
+            "x": round(x, 2),
+            "y": round(y, 2),
+            "size": round(size, 2),
+            "sentiment": video.overall_sentiment or "neutral",
+            "impactScore": round(video.impact_score or 0, 2)
+        })
+    
+    # Calculate edges (connections between videos)
+    edges = []
+    for i, video1 in enumerate(sorted_videos):
+        connections = []
+        for j, video2 in enumerate(sorted_videos):
+            if i >= j:  # Skip self and already processed pairs
+                continue
+            
+            # Connect if same sentiment or similar impact (within 20%)
+            same_sentiment = video1.overall_sentiment == video2.overall_sentiment
+            impact1 = video1.impact_score or 0
+            impact2 = video2.impact_score or 0
+            
+            if max(impact1, impact2) > 0:
+                impact_diff = abs(impact1 - impact2) / max(impact1, impact2)
+                similar_impact = impact_diff < 0.2
+            else:
+                similar_impact = False
+            
+            if same_sentiment or similar_impact:
+                connections.append(video2.id)
+                edges.append({
+                    "source": video1.id,
+                    "target": video2.id,
+                    "reason": "same_sentiment" if same_sentiment else "similar_impact"
+                })
+        
+        # Update node with connection count
+        nodes[i]["connections"] = len(connections)
+    
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "layout": {
+            "centerX": center_x,
+            "centerY": center_y,
+            "radius": radius
+        }
+    }
 
 
 @app.get("/api/videos/{video_id}", response_model=schemas.VideoResponse)
@@ -354,6 +468,7 @@ async def get_news_analysis(topic_id: int, db: Session = Depends(get_db)):
                 "positive_score": a.positive_score,
                 "negative_score": a.negative_score,
                 "neutral_score": a.neutral_score,
+                "relevance_score": a.relevance_score,
                 "entities": a.entities,
                 "hf_justification": getattr(a, 'hf_justification', None),
                 "gemini_justification": getattr(a, 'gemini_justification', None),
@@ -546,6 +661,81 @@ async def get_ai_synthesis(topic_id: int, force_refresh: bool = False, db: Sessi
     synthesis["cache_generated_at"] = topic.ai_synthesis_generated_at.isoformat()
     
     return synthesis
+
+
+@app.get("/api/topics/{topic_id}/ai-analytics")
+async def get_ai_analytics(topic_id: int, db: Session = Depends(get_db)):
+    """
+    Get AI analytics data for Model Agreement and Confidence Distribution charts
+    """
+    videos = crud.get_videos_by_topic(db, topic_id)
+    
+    model_agreement = {
+        "both_agree": {"positive": 0, "negative": 0, "neutral": 0},
+        "disagree": 0,
+        "vader_only": 0,
+        "gemini_only": 0,
+        "no_sentiment": 0
+    }
+    
+    confidence_data = {
+        "vader": [],
+        "gemini": []
+    }
+    
+    for video in videos:
+        sentiments = db.query(models.Sentiment).filter(models.Sentiment.video_id == video.id).all()
+        
+        vader_sentiment = None
+        gemini_sentiment = None
+        vader_confidence = None
+        gemini_confidence = None
+        
+        for sent in sentiments:
+            if sent.model_name in ["vader", "huggingface"]:
+                vader_sentiment = sent.sentiment
+                vader_confidence = sent.confidence
+            elif sent.model_name == "gemini":
+                gemini_sentiment = sent.sentiment
+                gemini_confidence = sent.confidence
+        
+        # Model agreement logic
+        if vader_sentiment and gemini_sentiment:
+            if vader_sentiment == gemini_sentiment:
+                # Both agree on same sentiment
+                sentiment_key = vader_sentiment.lower() if vader_sentiment else "neutral"
+                if sentiment_key in ["positive", "negative", "neutral"]:
+                    model_agreement["both_agree"][sentiment_key] += 1
+            else:
+                model_agreement["disagree"] += 1
+        elif vader_sentiment and not gemini_sentiment:
+            model_agreement["vader_only"] += 1
+        elif gemini_sentiment and not vader_sentiment:
+            model_agreement["gemini_only"] += 1
+        else:
+            model_agreement["no_sentiment"] += 1
+        
+        # Confidence distribution
+        if vader_confidence is not None:
+            confidence_data["vader"].append(round(vader_confidence * 100, 1))
+        if gemini_confidence is not None:
+            confidence_data["gemini"].append(round(gemini_confidence * 100, 1))
+    
+    # Calculate agreement statistics
+    total_videos = len(videos)
+    total_agree = sum(model_agreement["both_agree"].values())
+    
+    result = {
+        "total_videos": total_videos,
+        "model_agreement": model_agreement,
+        "agreement_percentage": round((total_agree / total_videos * 100) if total_videos > 0 else 0, 1),
+        "disagreement_percentage": round((model_agreement["disagree"] / total_videos * 100) if total_videos > 0 else 0, 1),
+        "confidence_data": confidence_data,
+        "vader_avg_confidence": round(sum(confidence_data["vader"]) / len(confidence_data["vader"]), 1) if confidence_data["vader"] else 0,
+        "gemini_avg_confidence": round(sum(confidence_data["gemini"]) / len(confidence_data["gemini"]), 1) if confidence_data["gemini"] else 0
+    }
+    
+    return result
 
 
 # DATABASE MANAGEMENT ENDPOINTS

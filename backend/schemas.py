@@ -65,9 +65,13 @@ class VideoResponse(BaseModel):
     influence_score: Optional[float]
     recency_boost: Optional[float]
     overall_sentiment: Optional[SentimentType]
+    emotions_json: Optional[str] = None
+    emotions: Optional[str] = None  # Alias for emotions_json for frontend compatibility
 
     class Config:
         from_attributes = True
+        populate_by_name = True
+        arbitrary_types_allowed = True
 
 
 # Sentiment Schemas

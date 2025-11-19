@@ -165,6 +165,117 @@
       </div>
     </section>
 
+    <!-- Overview Visualizations Container -->
+    <section class="overview-visualizations">
+      <div class="viz-header">
+        <h2 class="viz-title">
+          <span class="viz-icon">📊</span>
+          Data Insights
+        </h2>
+        <p class="viz-subtitle">Visual analysis of sentiment and emotional patterns</p>
+      </div>
+
+      <div class="viz-grid">
+        <!-- Sentiment Distribution Card -->
+        <div class="viz-card sentiment-dist-card">
+          <div class="card-header">
+            <span class="card-icon">🎯</span>
+            <h3 class="card-title">Sentiment Distribution</h3>
+          </div>
+          
+          <div class="sentiment-donut-visual">
+            <svg viewBox="0 0 140 140" class="sentiment-svg">
+              <defs>
+                <filter id="sentimentGlow">
+                  <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+                <linearGradient id="positiveGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#4ade80;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#22c55e;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="neutralGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#94a3b8;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#64748b;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="negativeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" style="stop-color:#f87171;stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#ef4444;stop-opacity:1" />
+                </linearGradient>
+              </defs>
+              
+              <circle cx="70" cy="70" r="54" fill="none" stroke="#e5e7eb" stroke-width="24" opacity="0.2"></circle>
+              
+              <ng-container *ngFor="let segment of getSentimentDonutSegments(); let i = index">
+                <circle
+                  cx="70"
+                  cy="70"
+                  r="54"
+                  fill="none"
+                  [attr.stroke]="segment.gradient"
+                  stroke-width="24"
+                  [attr.stroke-dasharray]="segment.dashArray"
+                  [attr.stroke-dashoffset]="segment.offset"
+                  transform="rotate(-90 70 70)"
+                  stroke-linecap="round"
+                  [attr.filter]="'url(#sentimentGlow)'"
+                  [style.animation-delay]="i * 0.15 + 's'"
+                  class="donut-segment"
+                ></circle>
+              </ng-container>
+              
+              <text x="70" y="60" text-anchor="middle" class="sentiment-center-value">{{ videos.length }}</text>
+              <text x="70" y="78" text-anchor="middle" class="sentiment-center-label">Videos</text>
+            </svg>
+          </div>
+          
+          <div class="sentiment-legend-grid">
+            <div class="sentiment-stat-card sentiment-positive" *ngFor="let item of getSentimentDistributionData()">
+              <div class="stat-card-header">
+                <span class="stat-sentiment-icon">{{ item.icon }}</span>
+                <span class="stat-sentiment-label">{{ item.label }}</span>
+              </div>
+              <div class="stat-card-body">
+                <div class="stat-count-display">
+                  <span class="stat-number">{{ item.count }}</span>
+                  <span class="stat-unit">videos</span>
+                </div>
+                <span class="stat-percentage-display">{{ item.percentage }}%</span>
+              </div>
+              <div class="stat-progress-bar">
+                <div class="stat-progress-fill" [style.width.%]="item.percentage"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Emotion Heatmap Card -->
+        <div class="viz-card emotion-heatmap-card">
+          <div class="card-header">
+            <span class="card-icon">🌡️</span>
+            <h3 class="card-title">Emotion Intensity Map</h3>
+          </div>
+          
+          <div class="emotion-bars-container">
+            <div class="emotion-bar-item" *ngFor="let emotion of getEmotionHeatmapData()">
+              <div class="emotion-bar-label">
+                <span class="emotion-name">{{ emotion.emotion }}</span>
+                <span class="emotion-percentage">{{ emotion.intensity }}%</span>
+              </div>
+              <div class="emotion-bar-track">
+                <div class="emotion-bar-fill" 
+                     [style.width.%]="emotion.intensity"
+                     [style.background]="emotion.color"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Key Insights Bento Grid -->
     <section class="insights-grid">
       <!-- Top Video Card -->
@@ -181,22 +292,6 @@
             <span class="meta-icon">⚡</span>
             {{ topVideo.impact_score?.toFixed(2) }}
           </span>
-        </div>
-      </div>
-
-      <!-- Sentiment Trend Card -->
-      <div class="insight-card">
-        <h3>📈 Sentiment Trend</h3>
-        <div class="trend-indicator" [ngClass]="sentimentTrend">
-          <span class="trend-arrow" *ngIf="sentimentTrend === 'up'">↑</span>
-          <span class="trend-arrow" *ngIf="sentimentTrend === 'down'">↓</span>
-          <span class="trend-arrow" *ngIf="sentimentTrend === 'stable'">→</span>
-          <span class="trend-label">{{ sentimentTrend | titlecase }}</span>
-        </div>
-        <div class="mini-chart">
-          <svg viewBox="0 0 200 80" class="sparkline-svg">
-            <polyline [attr.points]="getSparklinePoints()" fill="none" stroke="var(--accent-cyan)" stroke-width="2"></polyline>
-          </svg>
         </div>
       </div>
 
@@ -233,6 +328,24 @@
 
   <!-- VIDEOS TAB -->
   <div class="tab-content" *ngIf="activeTab === 'videos'">
+    <!-- Video Sub-Tabs -->
+    <div class="video-sub-tabs">
+      <button class="sub-tab-btn" 
+              [class.active]="videoSubTab === 'overview'"
+              (click)="videoSubTab = 'overview'">
+        <span class="sub-tab-icon">📊</span>
+        <span class="sub-tab-label">Overview</span>
+      </button>
+      <button class="sub-tab-btn" 
+              [class.active]="videoSubTab === 'gnn'"
+              (click)="videoSubTab = 'gnn'">
+        <span class="sub-tab-icon">🕸️</span>
+        <span class="sub-tab-label">GNN Analysis</span>
+      </button>
+    </div>
+
+    <!-- OVERVIEW SUB-TAB -->
+    <div class="video-sub-content" *ngIf="videoSubTab === 'overview'">
     <!-- Search & Filter Bar -->
     <div class="content-toolbar">
       <div class="search-box">
@@ -249,6 +362,205 @@
           <span>Views</span>
           <span *ngIf="sortBy === 'view_count'">{{ sortDirection === 'desc' ? '↓' : '↑' }}</span>
         </button>
+      </div>
+    </div>
+
+    <!-- Video Impact Score Chart -->
+    <div class="video-analytics-section" *ngIf="videos.length > 0">
+      <div class="chart-card impact-score-chart">
+        <div class="chart-header">
+          <div class="chart-title-group">
+            <span class="chart-icon">⚡</span>
+            <h3 class="chart-title">Video Impact Rankings</h3>
+          </div>
+          <span class="chart-subtitle">Top 10 videos by impact score</span>
+        </div>
+        <div class="chart-body">
+          <div class="impact-bars-container">
+            <div class="impact-bar-item" *ngFor="let video of getVideoImpactScoreData(); let i = index"
+                 [style.animation-delay]="i * 0.08 + 's'">
+              <div class="impact-bar-header">
+                <div class="impact-rank-badge" [class.top-rank]="video.rank <= 3">
+                  <span class="rank-number">{{ video.rank }}</span>
+                </div>
+                <div class="impact-video-info">
+                  <span class="impact-video-title" [title]="video.title">{{ video.title }}</span>
+                  <span class="impact-score-value">{{ video.impactScore.toFixed(2) }}</span>
+                </div>
+              </div>
+              <div class="impact-bar-track">
+                <div class="impact-bar-fill"
+                     [style.width.%]="video.percentage"
+                     [class.gold]="video.rank === 1"
+                     [class.silver]="video.rank === 2"
+                     [class.bronze]="video.rank === 3">
+                  <div class="impact-bar-shine"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Views Chart -->
+      <div class="chart-card views-chart">
+        <div class="chart-header">
+          <div class="chart-title-group">
+            <span class="chart-icon">👁️</span>
+            <h3 class="chart-title">Most Viewed Videos</h3>
+          </div>
+          <span class="chart-subtitle">Top 10 videos by view count</span>
+        </div>
+        <div class="chart-body">
+          <div class="views-bars-container">
+            <div class="views-bar-item" *ngFor="let video of getVideoViewsData(); let i = index"
+                 [style.animation-delay]="i * 0.08 + 's'">
+              <div class="views-bar-header">
+                <div class="views-rank-badge">
+                  <span class="rank-number">{{ video.rank }}</span>
+                </div>
+                <div class="views-video-info">
+                  <span class="views-video-title" [title]="video.title">{{ video.title }}</span>
+                  <span class="views-count-value">
+                    <span class="views-icon">👁️</span>
+                    {{ video.viewsFormatted }}
+                  </span>
+                </div>
+              </div>
+              <div class="views-bar-track">
+                <div class="views-bar-fill"
+                     [style.width.%]="video.percentage">
+                  <div class="views-bar-gradient"></div>
+                  <div class="views-bar-shine"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Engagement and Overall Emotion Radar Grid -->
+    <div class="engagement-radar-grid" *ngIf="videos.length > 0">
+      <!-- Video Engagement Chart -->
+      <div class="chart-card engagement-chart compact">
+        <div class="chart-header">
+          <div class="chart-title-group">
+            <span class="chart-icon">💬</span>
+            <h3 class="chart-title">Top Video Engagement</h3>
+          </div>
+          <span class="chart-subtitle">Top 5 by likes & comments</span>
+        </div>
+        <div class="chart-body">
+          <div class="engagement-bars-container">
+            <div class="engagement-bar-item compact" *ngFor="let video of getVideoEngagementData().slice(0, 5); let i = index"
+                 [style.animation-delay]="i * 0.08 + 's'">
+              <div class="engagement-video-header">
+                <span class="engagement-video-title" [title]="video.title">{{ video.title }}</span>
+                <span class="engagement-total">
+                  <span class="engagement-icon">🔥</span>
+                  {{ video.engagementFormatted }}
+                </span>
+              </div>
+              <div class="engagement-metrics-row">
+                <div class="engagement-metric likes-metric">
+                  <div class="metric-label-row">
+                    <span class="metric-icon">👍</span>
+                    <span class="metric-label">Likes</span>
+                    <span class="metric-value">{{ video.likesFormatted }}</span>
+                  </div>
+                  <div class="metric-bar-track">
+                    <div class="metric-bar-fill likes-fill"
+                         [style.width.%]="video.likesPercentage">
+                      <div class="metric-bar-shine"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="engagement-metric comments-metric">
+                  <div class="metric-label-row">
+                    <span class="metric-icon">💬</span>
+                    <span class="metric-label">Comments</span>
+                    <span class="metric-value">{{ video.commentsFormatted }}</span>
+                  </div>
+                  <div class="metric-bar-track">
+                    <div class="metric-bar-fill comments-fill"
+                         [style.width.%]="video.commentsPercentage">
+                      <div class="metric-bar-shine"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overall Emotion Radar Chart -->
+      <div class="chart-card overall-radar-chart compact">
+        <div class="chart-header">
+          <div class="chart-title-group">
+            <span class="chart-icon">🎭</span>
+            <h3 class="chart-title">Overall Emotion Distribution</h3>
+          </div>
+          <span class="chart-subtitle">Combined emotions across all videos</span>
+        </div>
+        <div class="chart-body">
+          <div class="overall-radar-container">
+            <div class="overall-radar-header">
+              <span class="overall-total-emotions">Total: {{ getOverallEmotionRadarData().totalEmotions }} emotions</span>
+              <span class="overall-dominant-emotion" [attr.data-emotion]="getOverallEmotionRadarData().maxEmotion">
+                <span class="emotion-icon">{{ getEmotionIcon(getOverallEmotionRadarData().maxEmotion) }}</span>
+                {{ getOverallEmotionRadarData().maxEmotion }}
+              </span>
+            </div>
+            <div class="radar-chart-container">
+              <svg viewBox="0 0 200 200" class="radar-svg">
+                <!-- Background hexagon grid -->
+                <polygon class="radar-grid-line radar-grid-100" 
+                         points="100,20 173.2,55 173.2,145 100,180 26.8,145 26.8,55"/>
+                <polygon class="radar-grid-line radar-grid-66" 
+                         points="100,46.7 153.1,70 153.1,130 100,153.3 46.9,130 46.9,70"/>
+                <polygon class="radar-grid-line radar-grid-33" 
+                         points="100,73.3 126.6,85 126.6,115 100,126.7 73.4,115 73.4,85"/>
+                
+                <!-- Axis lines -->
+                <line class="radar-axis" x1="100" y1="100" x2="100" y2="20"/>
+                <line class="radar-axis" x1="100" y1="100" x2="173.2" y2="55"/>
+                <line class="radar-axis" x1="100" y1="100" x2="173.2" y2="145"/>
+                <line class="radar-axis" x1="100" y1="100" x2="100" y2="180"/>
+                <line class="radar-axis" x1="100" y1="100" x2="26.8" y2="145"/>
+                <line class="radar-axis" x1="100" y1="100" x2="26.8" y2="55"/>
+                
+                <!-- Data polygon -->
+                <polygon class="radar-data-fill" [attr.points]="getOverallEmotionRadarData().radarPoints"/>
+                <polygon class="radar-data-stroke" [attr.points]="getOverallEmotionRadarData().radarPoints"/>
+                
+                <!-- Data points -->
+                <ng-container *ngFor="let point of getOverallEmotionRadarData().radarPoints.split(' '); let pi = index">
+                  <circle [attr.cx]="point.split(',')[0]"
+                          [attr.cy]="point.split(',')[1]"
+                          r="5"
+                          class="radar-data-point"
+                          [style.animation-delay]="pi * 0.1 + 's'"/>
+                </ng-container>
+                
+                <!-- Axis labels -->
+                <text class="radar-label" x="100" y="15" text-anchor="middle">Joy</text>
+                <text class="radar-label" x="185" y="60" text-anchor="start">Sadness</text>
+                <text class="radar-label" x="185" y="150" text-anchor="start">Anger</text>
+                <text class="radar-label" x="100" y="195" text-anchor="middle">Fear</text>
+                <text class="radar-label" x="15" y="150" text-anchor="end">Surprise</text>
+                <text class="radar-label" x="15" y="60" text-anchor="end">Love</text>
+              </svg>
+            </div>
+            <div class="overall-emotion-values">
+              <div class="emotion-value" *ngFor="let emotion of ['joy', 'sadness', 'anger', 'fear', 'surprise', 'love']">
+                <span class="emotion-name">{{ getEmotionIcon(emotion) }} {{ emotion }}</span>
+                <span class="emotion-count">{{ getOverallEmotionRadarData().emotions[emotion] || 0 }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -282,30 +594,258 @@
       <span class="empty-icon">🎥</span>
       <p>No videos found</p>
     </div>
+    </div>
+
+    <!-- GNN ANALYSIS SUB-TAB -->
+    <div class="video-sub-content" *ngIf="videoSubTab === 'gnn'">
+      <div class="gnn-section" *ngIf="videos.length > 0">
+        <div class="chart-card gnn-card">
+          <div class="chart-header">
+            <div class="chart-title-group">
+              <span class="chart-icon">🕸️</span>
+              <h3 class="chart-title">Video Relationship Network</h3>
+            </div>
+            <span class="chart-subtitle">Graph neural network visualization of video connections</span>
+          </div>
+          <div class="chart-body">
+            <div class="gnn-graph-container">
+              <svg viewBox="0 0 600 500" class="gnn-svg">
+                <defs>
+                  <filter id="gnnGlow">
+                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                    <feMerge>
+                      <feMergeNode in="coloredBlur"/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                  <linearGradient id="positiveNodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+                  </linearGradient>
+                  <linearGradient id="neutralNodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#4f46e5;stop-opacity:1" />
+                  </linearGradient>
+                  <linearGradient id="negativeNodeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#ef4444;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
+                  </linearGradient>
+                </defs>
+                
+                <!-- Draw edges first (behind nodes) -->
+                <g class="gnn-edges">
+                  <line *ngFor="let edge of getVideoGNNEdges(); let i = index"
+                        [attr.x1]="getNodeById(edge.source)?.x"
+                        [attr.y1]="getNodeById(edge.source)?.y"
+                        [attr.x2]="getNodeById(edge.target)?.x"
+                        [attr.y2]="getNodeById(edge.target)?.y"
+                        class="gnn-edge"
+                        [style.animation-delay]="(i * 0.02) + 's'"/>
+                </g>
+                
+                <!-- Draw nodes -->
+                <g class="gnn-nodes">
+                  <g *ngFor="let node of getVideoGNNData(); let i = index" 
+                     class="gnn-node-group"
+                     [style.animation-delay]="(i * 0.08) + 's'">
+                    <circle 
+                      [attr.cx]="node.x"
+                      [attr.cy]="node.y"
+                      [attr.r]="node.size"
+                      class="gnn-node"
+                      [attr.fill]="node.sentiment === 'positive' ? 'url(#positiveNodeGrad)' : node.sentiment === 'negative' ? 'url(#negativeNodeGrad)' : 'url(#neutralNodeGrad)'"
+                      [attr.filter]="'url(#gnnGlow)'"
+                      [attr.data-video-id]="node.id"
+                      [attr.data-title]="node.title"
+                      [attr.data-impact]="node.impactScore.toFixed(2)"/>
+                    <text 
+                      [attr.x]="node.x"
+                      [attr.y]="node.y - node.size - 8"
+                      class="gnn-node-label"
+                      text-anchor="middle">{{ i + 1 }}</text>
+                  </g>
+                </g>
+              </svg>
+            </div>
+            
+            <div class="gnn-legend">
+              <div class="legend-section">
+                <h4 class="legend-title">📊 Node Size</h4>
+                <p class="legend-desc">Size indicates video impact score</p>
+              </div>
+              <div class="legend-section">
+                <h4 class="legend-title">🎨 Node Colors</h4>
+                <div class="legend-items">
+                  <div class="legend-item">
+                    <div class="legend-color positive"></div>
+                    <span>Positive Sentiment</span>
+                  </div>
+                  <div class="legend-item">
+                    <div class="legend-color neutral"></div>
+                    <span>Neutral Sentiment</span>
+                  </div>
+                  <div class="legend-item">
+                    <div class="legend-color negative"></div>
+                    <span>Negative Sentiment</span>
+                  </div>
+                </div>
+              </div>
+              <div class="legend-section">
+                <h4 class="legend-title">🔗 Connections</h4>
+                <p class="legend-desc">Lines connect videos with similar sentiment or impact scores</p>
+              </div>
+            </div>
+            
+            <div class="gnn-video-list">
+              <h4 class="video-list-title">📹 Video Nodes</h4>
+              <div class="video-list-items">
+                <div class="video-list-item" *ngFor="let node of getVideoGNNData(); let i = index">
+                  <span class="video-node-number">{{ i + 1 }}</span>
+                  <div class="video-node-info">
+                    <span class="video-node-title" [title]="node.title">{{ node.title }}</span>
+                    <div class="video-node-meta">
+                      <span class="meta-badge sentiment-badge" [class]="node.sentiment">{{ node.sentiment }}</span>
+                      <span class="meta-badge impact-badge">Impact: {{ node.impactScore.toFixed(2) }}</span>
+                      <span class="meta-badge connections-badge">{{ getNodeConnections(node.id) }} links</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="empty-state" *ngIf="videos.length === 0">
+        <span class="empty-icon">🕸️</span>
+        <p>No videos available for GNN analysis</p>
+      </div>
+    </div>
   </div>
 
   <!-- NEWS TAB -->
   <div class="tab-content" *ngIf="activeTab === 'news'">
-    <div class="articles-grid">
-      <article class="article-card" *ngFor="let article of articles">
-        <div class="article-header">
-          <span class="article-source">{{ article.source }}</span>
-          <span class="relevance-badge" *ngIf="article.relevance_score">
-            ✨ {{ article.relevance_score }}%
-          </span>
+    <!-- News Analytics Section -->
+    <div class="news-analytics-section" *ngIf="newsAnalysis && articles.length > 0">
+      <div class="analytics-grid">
+        <!-- Source Distribution Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title-group">
+              <span class="chart-icon">📊</span>
+              <h3 class="chart-title">Source Distribution</h3>
+            </div>
+            <span class="chart-subtitle">Articles by news source</span>
+          </div>
+          <div class="chart-body">
+            <div class="bar-chart-container">
+              <div class="bar-item" *ngFor="let item of getSourceDistributionData(); let i = index">
+                <div class="bar-label-row">
+                  <span class="bar-label" [title]="item.source">{{ item.source }}</span>
+                  <span class="bar-value">{{ item.count }} <span class="bar-percent">({{ item.percentage }}%)</span></span>
+                </div>
+                <div class="bar-track">
+                  <div 
+                    class="bar-fill" 
+                    [style.width.%]="getSourceBarWidth(item.count)"
+                    [style.background]="getSourceBarColor(i)">
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="chart-footer-info">
+              <span class="info-badge">
+                <span class="info-icon">🏢</span>
+                <span>{{ newsAnalysis.unique_sources }} unique sources</span>
+              </span>
+              <span class="info-badge">
+                <span class="info-icon">📄</span>
+                <span>{{ newsAnalysis.total_articles }} total articles</span>
+              </span>
+            </div>
+          </div>
         </div>
-        
-        <h3 class="article-title">
-          <a [href]="article.url" target="_blank">{{ article.title }}</a>
+
+        <!-- Relevance Histogram Chart -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <div class="chart-title-group">
+              <span class="chart-icon">📈</span>
+              <h3 class="chart-title">Relevance Distribution</h3>
+            </div>
+            <span class="chart-subtitle">How relevant are articles to your topic</span>
+          </div>
+          <div class="chart-body">
+            <div class="histogram-container">
+              <div class="histogram-item" *ngFor="let bin of getRelevanceHistogramData()">
+                <div class="histogram-bar-wrapper">
+                  <div 
+                    class="histogram-bar"
+                    [style.height.%]="bin.percentage * 2"
+                    [style.background]="getRelevanceRangeColor(bin.range)">
+                    <span class="histogram-count">{{ bin.count }}</span>
+                  </div>
+                </div>
+                <div class="histogram-label">
+                  <span class="histogram-range">{{ bin.range }}</span>
+                  <span class="histogram-percentage">{{ bin.percentage }}%</span>
+                </div>
+              </div>
+            </div>
+            <div class="chart-legend">
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #ef4444;"></span>
+                <span class="legend-text">Low relevance</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #f59e0b;"></span>
+                <span class="legend-text">Moderate</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #3b82f6;"></span>
+                <span class="legend-text">Good</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #22c55e;"></span>
+                <span class="legend-text">High relevance</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Articles Grid -->
+    <div class="articles-section">
+      <div class="section-header">
+        <h3 class="section-title">
+          <span class="section-icon">📰</span>
+          News Articles
         </h3>
-        
-        <p class="article-description">{{ article.description }}</p>
-        
-        <div class="article-footer">
-          <span class="article-author" *ngIf="article.author">{{ article.author }}</span>
-          <span class="article-date">{{ formatDate(article.published_at) }}</span>
-        </div>
-      </article>
+        <span class="section-count">{{ articles.length }} articles</span>
+      </div>
+      
+      <div class="articles-grid">
+        <article class="article-card" *ngFor="let article of articles">
+          <div class="article-header">
+            <span class="article-source">{{ article.source }}</span>
+            <span class="relevance-badge" *ngIf="article.relevance_score">
+              ✨ {{ article.relevance_score }}%
+            </span>
+          </div>
+          
+          <h3 class="article-title">
+            <a [href]="article.url" target="_blank">{{ article.title }}</a>
+          </h3>
+          
+          <p class="article-description">{{ article.description }}</p>
+          
+          <div class="article-footer">
+            <span class="article-author" *ngIf="article.author">{{ article.author }}</span>
+            <span class="article-date">{{ formatDate(article.published_at) }}</span>
+          </div>
+        </article>
+      </div>
     </div>
 
     <div class="empty-state" *ngIf="articles.length === 0">
@@ -343,6 +883,132 @@
           </div>
         </div>
         <p class="summary-text">{{ aiSummary.executive_summary }}</p>
+      </div>
+
+      <!-- AI Analytics Charts Section -->
+      <div class="ai-analytics-section" *ngIf="aiAnalytics">
+        <div class="ai-charts-grid">
+          <!-- Model Agreement Chart -->
+          <div class="ai-chart-card">
+            <div class="ai-chart-header">
+              <div class="ai-chart-title-group">
+                <span class="ai-chart-icon">🤝</span>
+                <div class="ai-chart-text-group">
+                  <h3 class="ai-chart-title">Model Agreement</h3>
+                  <span class="ai-chart-subtitle">When VADER and Gemini agree vs disagree</span>
+                </div>
+              </div>
+            </div>
+            <div class="ai-chart-body">
+              <div class="donut-chart-wrapper">
+                <div class="donut-chart-container">
+                  <svg viewBox="0 0 120 120" class="donut-chart">
+                    <!-- Background circle with gradient -->
+                    <defs>
+                      <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#f1f5f9;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#e2e8f0;stop-opacity:1" />
+                      </linearGradient>
+                      <filter id="glow">
+                        <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                        <feMerge>
+                          <feMergeNode in="coloredBlur"/>
+                          <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                      </filter>
+                    </defs>
+                    <circle cx="60" cy="60" r="45" fill="none" stroke="url(#bgGradient)" stroke-width="18"></circle>
+                    <ng-container *ngFor="let segment of getAgreementDonutSegments(); let i = index">
+                      <circle
+                        cx="60"
+                        cy="60"
+                        r="45"
+                        fill="none"
+                        [attr.stroke]="segment.color"
+                        stroke-width="18"
+                        [attr.stroke-dasharray]="segment.dashArray"
+                        [attr.stroke-dashoffset]="-segment.offset"
+                        transform="rotate(-90 60 60)"
+                        [attr.filter]="'url(#glow)'"
+                        [style.animation-delay]="i * 0.1 + 's'"
+                        class="donut-segment">
+                      </circle>
+                    </ng-container>
+                    <text x="60" y="52" text-anchor="middle" class="donut-center-value">{{ aiAnalytics.agreement_percentage }}%</text>
+                    <text x="60" y="68" text-anchor="middle" class="donut-center-label">AGREEMENT</text>
+                  </svg>
+                </div>
+                <div class="donut-legend">
+                  <div class="donut-legend-item" *ngFor="let item of getModelAgreementData(); let i = index" [style.animation-delay]="i * 0.1 + 's'">
+                    <span class="donut-legend-dot" [style.background]="item.color"></span>
+                    <div class="donut-legend-content">
+                      <span class="donut-legend-text">{{ item.label }}</span>
+                      <span class="donut-legend-value">{{ item.count }} videos <span class="legend-percentage">({{ item.percentage }}%)</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="ai-chart-stats">
+                <div class="ai-stat-pill agree">
+                  <span class="ai-stat-icon">✅</span>
+                  <div class="ai-stat-content">
+                    <span class="ai-stat-value">{{ aiAnalytics.agreement_percentage }}%</span>
+                    <span class="ai-stat-label">Agreement</span>
+                  </div>
+                </div>
+                <div class="ai-stat-pill disagree">
+                  <span class="ai-stat-icon">⚠️</span>
+                  <div class="ai-stat-content">
+                    <span class="ai-stat-value">{{ aiAnalytics.disagreement_percentage }}%</span>
+                    <span class="ai-stat-label">Disagree</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Confidence Distribution Chart -->
+          <div class="ai-chart-card">
+            <div class="ai-chart-header">
+              <div class="ai-chart-title-group">
+                <span class="ai-chart-icon">📊</span>
+                <h3 class="ai-chart-title">Confidence Distribution</h3>
+              </div>
+              <span class="ai-chart-subtitle">Model confidence levels across all videos</span>
+            </div>
+            <div class="ai-chart-body">
+              <div class="grouped-bars-container">
+                <div class="grouped-bar-item" *ngFor="let modelData of getConfidenceDistributionData()">
+                  <div class="grouped-bar-header">
+                    <span class="grouped-bar-model" [style.color]="modelData.color">{{ modelData.model }}</span>
+                    <span class="grouped-bar-avg">Avg: {{ modelData.avgConfidence }}%</span>
+                  </div>
+                  <div class="confidence-bars-grid">
+                    <div class="confidence-bar-wrapper" *ngFor="let bin of modelData.bins">
+                      <div class="confidence-bar-track">
+                        <div 
+                          class="confidence-bar-fill"
+                          [style.height.%]="(bin.count / getConfidenceBarMaxHeight(modelData.bins)) * 100"
+                          [style.background]="modelData.color">
+                          <span class="confidence-bar-count" *ngIf="bin.count > 0">{{ bin.count }}</span>
+                        </div>
+                      </div>
+                      <span class="confidence-bar-label">{{ bin.range }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="confidence-insights">
+                <p class="confidence-insight-text">
+                  <strong>Insight:</strong> 
+                  {{ aiAnalytics.vader_avg_confidence > aiAnalytics.gemini_avg_confidence ? 'VADER' : 'Gemini AI' }}
+                  shows higher average confidence ({{ Math.max(aiAnalytics.vader_avg_confidence, aiAnalytics.gemini_avg_confidence) }}%)
+                  in sentiment predictions across {{ aiAnalytics.total_videos }} videos.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Insights Grid -->

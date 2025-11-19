@@ -46,6 +46,7 @@ export interface Video {
   overall_sentiment?: string;
   confidence_score?: number;
   emotions_json?: string;
+  emotions?: string;
   created_at: string;
 }
 

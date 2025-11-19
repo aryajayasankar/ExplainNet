@@ -1,5 +1,100 @@
 # ExplainNet - Recent Changes Summary
 
+## Latest Changes (Current Session)
+
+### **Backend Integration for GNN & Emotion Data**
+
+#### 1. Added Emotions to Video API Response
+**File**: `backend/schemas.py`
+- Added `emotions_json: Optional[str]` field to VideoResponse
+- Added `emotions: Optional[str]` alias for frontend compatibility
+
+**File**: `backend/crud.py`
+- Modified `get_videos_by_topic()` to aggregate emotions from sentiments table
+- Calculates average emotion scores (joy, sadness, anger, fear, surprise, love, neutral)
+- Stores aggregated data in `video.emotions_json` and `video.emotions`
+
+**Result**: Videos now include emotion data from sentiment analysis in API responses.
+
+---
+
+#### 2. Created GNN Backend Endpoint
+**File**: `backend/main.py`
+- Added `/api/topics/{topic_id}/videos/gnn` endpoint
+- Calculates Graph Neural Network visualization data:
+  - **Nodes**: Top 12 videos by impact score with circular layout positions
+  - **Edges**: Connections between videos with similar sentiment or impact (within 20%)
+  - **Node sizes**: Based on impact scores (15-40px radius)
+  - Returns layout metadata (centerX, centerY, radius)
+
+**Algorithm**:
+```python
+- Sort videos by impact_score, take top 12
+- Calculate circular positions: angle = (i * 2π) / 12
+- Node size = 15 + (impact/max_impact * 25)
+- Connect if: same_sentiment OR impact_difference < 20%
+```
+
+**Result**: GNN graph data calculated on backend, not frontend.
+
+---
+
+#### 3. Removed GNN Hover Effects
+**File**: `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.scss`
+- Removed `:hover` transform scale from `.gnn-node`
+- Removed `cursor: pointer` from `.gnn-node-group`
+- Removed transition animations
+
+**Result**: GNN nodes are static, no hover interactions.
+
+---
+
+#### 4. Frontend GNN Integration
+**File**: `frontend/explainnet-ui/src/app/services/api.service.ts`
+- Added `getVideosGNN(topicId)` method
+
+**File**: `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.ts`
+- Added `gnnData: { nodes: any[], edges: any[] }` property
+- Added `loadGNNData()` method called after videos load
+- Refactored `getVideoGNNData()` to return backend nodes
+- Added `getVideoGNNEdges()` to return backend edges
+- Added `getNodeById(nodeId)` helper for edge rendering
+- Added `getNodeConnections(nodeId)` to count connections
+
+**File**: `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.html`
+- Updated edge rendering to use `getVideoGNNEdges()` array
+- Updated video list to show connection count from backend
+
+**Result**: GNN visualization uses 100% backend data, no frontend calculations.
+
+---
+
+#### 5. Verified All Charts Use Backend Data
+**Checked Methods** (all use `this.videos` from API):
+- ✅ `getVideoImpactScoreData()` - Sorts/formats backend impact_score
+- ✅ `getVideoViewsData()` - Sorts/formats backend view_count
+- ✅ `getVideoEngagementData()` - Calculates from backend like_count + comment_count
+- ✅ `getOverallEmotionRadarData()` - Aggregates backend video.emotions
+
+**Result**: All video charts display backend-calculated data, only formatting on frontend.
+
+---
+
+## Files Modified (Current Session)
+
+### Backend:
+- `backend/schemas.py` - Added emotions fields to VideoResponse
+- `backend/crud.py` - Added emotion aggregation to get_videos_by_topic()
+- `backend/main.py` - Added /videos/gnn endpoint
+
+### Frontend:
+- `frontend/explainnet-ui/src/app/services/api.service.ts` - Added getVideosGNN()
+- `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.ts` - GNN backend integration
+- `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.html` - Updated GNN template
+- `frontend/explainnet-ui/src/app/pages/analysis/analysis.component.scss` - Removed hover effects
+
+---
+
 ## Changes Implemented (November 17, 2025)
 
 ### 1. **Fixed httpx/httpcore Compatibility Issues**

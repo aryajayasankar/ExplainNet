@@ -34,8 +34,11 @@
     "@angular/router": "^20.3.0",
     "@angular/ssr": "^20.3.9",
     "chart.js": "^4.5.1",
+    "cytoscape": "^3.33.1",
+    "echarts": "^6.0.0",
     "express": "^5.1.0",
     "ng2-charts": "^8.0.0",
+    "ngx-echarts": "^20.0.2",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

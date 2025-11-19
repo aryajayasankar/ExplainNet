@@ -64,6 +64,9 @@ class Video(Base):
     # NEW: Entity extraction (stored as JSON string)
     entities_json = Column(Text, nullable=True)  # {"persons": [...], "organizations": [...], "locations": [...]}
     
+    # NEW: Aggregated emotions from sentiments (stored as JSON string)
+    emotions_json = Column(Text, nullable=True)  # {"joy": 0-100, "sadness": 0-100, "anger": 0-100, ...}
+    
     # Impact Score Components
     impact_score = Column(Float, nullable=True)
     reach_score = Column(Float, nullable=True)

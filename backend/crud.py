@@ -99,7 +99,69 @@ def create_video(db: Session, video_data: dict, topic_id: int):
 
 
 def get_videos_by_topic(db: Session, topic_id: int):
-    return db.query(models.Video).filter(models.Video.topic_id == topic_id).all()
+    """Get all videos for a topic with aggregated emotions from sentiments"""
+    import json
+    from sqlalchemy import func, inspect
+    from sqlalchemy.exc import OperationalError
+    
+    videos = db.query(models.Video).filter(models.Video.topic_id == topic_id).all()
+    print(f"🔍 Found {len(videos)} videos for topic {topic_id}")
+    
+    # Check if emotions_json column exists in Video table
+    inspector = inspect(db.bind)
+    video_columns = [col['name'] for col in inspector.get_columns('videos')] if inspector.has_table('videos') else []
+    has_emotions_column = 'emotions_json' in video_columns
+    print(f"🔍 Video table has emotions_json column: {has_emotions_column}")
+    
+    # Aggregate emotions from sentiments for each video
+    for idx, video in enumerate(videos):
+        sentiments = db.query(models.Sentiment).filter(models.Sentiment.video_id == video.id).all()
+        
+        if sentiments:
+            # Aggregate emotions across all sentiments
+            emotion_aggregates = {
+                'joy': 0, 'sadness': 0, 'anger': 0, 'fear': 0, 
+                'surprise': 0, 'love': 0, 'neutral': 0
+            }
+            count = 0
+            
+            for sentiment in sentiments:
+                if sentiment.emotions_json:
+                    try:
+                        emotions = json.loads(sentiment.emotions_json)
+                        for key in emotion_aggregates:
+                            if key in emotions:
+                                emotion_aggregates[key] += emotions[key]
+                        count += 1
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+            
+            # Average the emotions
+            if count > 0:
+                for key in emotion_aggregates:
+                    emotion_aggregates[key] = round(emotion_aggregates[key] / count, 2)
+                
+                emotions_str = json.dumps(emotion_aggregates)
+                
+                # If column exists, update in database
+                if has_emotions_column:
+                    try:
+                        video.emotions_json = emotions_str
+                        db.commit()
+                    except OperationalError:
+                        db.rollback()
+                        # Fall back to setting as instance attribute
+                        video.emotions_json = emotions_str
+                        video.emotions = emotions_str
+                else:
+                    # Set as instance attribute for serialization
+                    video.emotions_json = emotions_str
+                    video.emotions = emotions_str
+                
+                if idx == 0:  # Log first video for debugging
+                    print(f"✅ First video emotions: {emotions_str}")
+    
+    return videos
 
 
 def get_video(db: Session, video_id: int):
