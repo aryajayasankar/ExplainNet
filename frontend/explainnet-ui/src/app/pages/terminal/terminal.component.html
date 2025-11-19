@@ -57,13 +57,14 @@
         <span>ExplainNet AI Terminal</span>
       </div>
       <div class="terminal-actions">
+        <span class="terminal-timer">
+          <span class="timer-icon">⏱️</span>
+          <span class="timer-value">{{ elapsedTime }}</span>
+        </span>
         <span class="terminal-status">
           <span class="status-dot"></span>
           <span>Processing...</span>
         </span>
-        <button class="btn-cancel" (click)="cancelAnalysis()">
-          <span>✕ Cancel</span>
-        </button>
       </div>
     </div>
     
@@ -79,6 +80,30 @@
         <span class="log-icon">{{ getLogIcon(log.type) }}</span>
         <span class="log-text">{{ log.text }}</span>
       </div>
+      
+      <!-- Mini Transcription Terminal -->
+      <div class="transcription-terminal" *ngIf="transcriptionState.isActive">
+        <div class="transcription-header">
+          <span class="transcription-title">
+            <span class="transcription-icon">🎙️</span>
+            <span>Transcription Process</span>
+          </span>
+          <span class="transcription-timer">
+            <span class="timer-icon">⏱️</span>
+            <span>{{ transcriptionState.elapsedTime }}</span>
+          </span>
+        </div>
+        <div class="transcription-logs">
+          <div 
+            *ngFor="let tlog of transcriptionState.logs" 
+            class="transcription-log-line"
+            [class.visible]="tlog.visible"
+          >
+            {{ tlog.text }}
+          </div>
+        </div>
+      </div>
+      
       <div class="terminal-cursor" *ngIf="isProcessing">_</div>
     </div>
   </div>
@@ -110,6 +135,18 @@
       <!-- Show last few logs -->
       <div class="completion-summary">
         <h4>Process Summary:</h4>
+        <div class="completion-stats">
+          <div class="stat-item">
+            <span class="stat-icon">⏱️</span>
+            <span class="stat-label">Total Time:</span>
+            <span class="stat-value">{{ getFormattedDuration() }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-icon">📊</span>
+            <span class="stat-label">Topic:</span>
+            <span class="stat-value">{{ topicInput }}</span>
+          </div>
+        </div>
         <div class="summary-logs">
           <div *ngFor="let log of logs.slice(-5)" class="summary-log">
             {{ log.text }}

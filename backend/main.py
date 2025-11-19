@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os
-from typing import List
+from typing import List, Dict
+import asyncio
 from database import engine, Base, get_db
 import models
 import schemas
@@ -77,7 +78,12 @@ async def create_topic_streaming(
     import json
     import asyncio
     
+    global active_analysis_tasks
+    topic_id = None
+    analysis_generator = None
+    
     async def event_stream():
+        nonlocal topic_id, analysis_generator
         try:
             # Step 1: Create topic in database
             yield f"data: {json.dumps({'status': 'progress', 'message': '📝 Creating topic...', 'type': 'info'})}\n\n"
@@ -86,17 +92,21 @@ async def create_topic_streaming(
             db_topic = crud.create_topic(db, schemas.TopicCreate(topic_name=topic))
             topic_id = db_topic.id
             
-            yield f"data: {json.dumps({'status': 'progress', 'message': f'✅ Topic created: {topic}', 'type': 'success'})}\n\n"
+            # Store a cancellation event for this topic
+            cancel_event = asyncio.Event()
+            active_analysis_tasks[topic_id] = cancel_event
+            
+            yield f"data: {json.dumps({'status': 'progress', 'message': f'✅ Topic created: {topic}', 'type': 'success', 'topic_id': topic_id})}\n\n"
             await asyncio.sleep(0.2)
             
             # Step 2: Search YouTube
             yield f"data: {json.dumps({'status': 'progress', 'message': f'🔍 Searching YouTube for \"{topic}\"...', 'type': 'info'})}\n\n"
             await asyncio.sleep(0.3)
             
-            # Run the pipeline analysis with progress streaming
+            # Stream progress from pipeline
             async for progress_data in pipeline.analyze_topic_streaming(db, topic_id, topic):
                 yield f"data: {json.dumps(progress_data)}\n\n"
-                await asyncio.sleep(0.1)  # Small delay between messages
+                await asyncio.sleep(0.1)
             
             # Final completion message
             yield f"data: {json.dumps({'status': 'complete', 'topic_id': topic_id, 'message': '🎉 Analysis complete!', 'type': 'success'})}\n\n"
@@ -145,6 +155,22 @@ async def delete_topic(topic_id: int, db: Session = Depends(get_db)):
     return {"message": "Topic deleted successfully"}
 
 
+@app.patch("/api/topics/{topic_id}", response_model=schemas.TopicResponse)
+async def update_topic(topic_id: int, update_data: dict, db: Session = Depends(get_db)):
+    """Update a topic (e.g., processing time)"""
+    topic = crud.get_topic(db, topic_id)
+    if not topic:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    
+    # Update allowed fields
+    if 'processing_time_seconds' in update_data:
+        topic.processing_time_seconds = update_data['processing_time_seconds']
+    
+    db.commit()
+    db.refresh(topic)
+    return topic
+
+
 # VIDEO ENDPOINTS
 @app.get("/api/topics/{topic_id}/videos", response_model=List[schemas.VideoResponse])
 async def get_topic_videos(topic_id: int, db: Session = Depends(get_db)):
@@ -182,8 +208,28 @@ async def get_video_transcript(video_id: int, db: Session = Depends(get_db)):
     video = crud.get_video(db, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Check if transcript exists
     if not video.transcript:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+        # Provide helpful error message based on transcription status
+        if video.transcription_status == 'failed':
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Transcription failed: {video.transcription_error or 'Unknown error'}"
+            )
+        elif video.transcription_status == 'timeout':
+            raise HTTPException(
+                status_code=404, 
+                detail="Transcription timed out (video too long or processing issue)"
+            )
+        elif video.transcription_status == 'pending':
+            raise HTTPException(
+                status_code=404, 
+                detail="Transcription pending (analysis may still be running)"
+            )
+        else:
+            raise HTTPException(status_code=404, detail="Transcript not available")
+    
     return video.transcript
 
 

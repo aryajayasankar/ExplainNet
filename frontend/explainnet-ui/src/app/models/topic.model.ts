@@ -12,6 +12,7 @@ export interface Topic {
   last_analyzed_at?: string;
   error_message?: string;
   unique_sources_count?: number;
+  processing_time_seconds?: number;
 }
 
 export interface TopicCreate {

@@ -45,9 +45,16 @@ def timeout(seconds):
 class VoskTranscriber:
     """Vosk transcription engine for YouTube videos"""
     
-    def __init__(self):
+    def __init__(self, log_callback=None):
         self.model = None
+        self.log_callback = log_callback
         self.load_model()
+    
+    def log(self, message: str):
+        """Log both to console and callback if available"""
+        print(message)
+        if self.log_callback:
+            self.log_callback(message)
     
     def load_model(self):
         """Load Vosk model (lazy loading)"""
@@ -167,7 +174,7 @@ class VoskTranscriber:
                 os.unlink(wav_file.name)
             
             # Download audio using yt-dlp
-            print(f"   Downloading audio with yt-dlp...")
+            self.log(f"[TRANSCRIPTION_LOG] 📥 Downloading audio...")
             ydl_opts = {
                 'format': 'worstaudio/worst',  # Use worst quality to avoid 403 on premium formats
                 'outtmpl': audio_file.name,
@@ -192,10 +199,11 @@ class VoskTranscriber:
             if not os.path.exists(audio_file.name) or os.path.getsize(audio_file.name) == 0:
                 raise Exception("Download failed - file is empty")
             
-            print(f"   Downloaded {os.path.getsize(audio_file.name)} bytes")
+            size_mb = os.path.getsize(audio_file.name) / (1024 * 1024)
+            self.log(f"[TRANSCRIPTION_LOG] ✓ Downloaded {size_mb:.1f}MB")
             
             # Convert to WAV using ffmpeg
-            print(f"   Converting to WAV...")
+            self.log(f"[TRANSCRIPTION_LOG] 🔊 Converting to WAV format...")
             ffmpeg_cmd = [
                 'ffmpeg',
                 '-i', audio_file.name,
@@ -219,10 +227,11 @@ class VoskTranscriber:
             if not os.path.exists(wav_file.name) or os.path.getsize(wav_file.name) == 0:
                 raise Exception("WAV conversion failed - file is empty")
             
-            print(f"   WAV file created: {os.path.getsize(wav_file.name)} bytes")
+            wav_size_mb = os.path.getsize(wav_file.name) / (1024 * 1024)
+            self.log(f"[TRANSCRIPTION_LOG] ✓ WAV created: {wav_size_mb:.1f}MB")
             
             # Transcribe with Vosk
-            print(f"   Transcribing...")
+            self.log(f"[TRANSCRIPTION_LOG] 🎙️ Transcribing speech...")
             recognizer = KaldiRecognizer(self.model, 16000)
             recognizer.SetWords(True)
             
@@ -258,7 +267,7 @@ class VoskTranscriber:
             duration = round(time.time() - start_time, 2)
             word_count = len(full_text.split())
             
-            print(f"   ✓ Transcription complete: {word_count} words in {duration}s")
+            self.log(f"[TRANSCRIPTION_LOG] ✓ Complete: {word_count} words in {duration}s")
             
             return {
                 "text": full_text,

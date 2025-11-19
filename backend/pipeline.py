@@ -12,6 +12,9 @@ import impact_score_service
 import cache_service
 from datetime import datetime
 
+# Global queue for transcription logs
+transcription_log_queue = None
+
 
 async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
     """
@@ -24,6 +27,9 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         "type": "info" | "success" | "warning" | "error"
     }
     """
+    
+    global transcription_log_queue
+    transcription_log_queue = asyncio.Queue()
     
     try:
         # Update status to processing
@@ -126,8 +132,29 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         yield {"status": "progress", "message": "💭 Analyzing sentiment with AI...", "type": "info"}
         yield {"status": "progress", "message": "💬 Processing comments...", "type": "info"}
         
-        # Gather results
-        results = await asyncio.gather(*video_tasks, return_exceptions=True)
+        # Gather results while monitoring transcription log queue
+        results = []
+        pending = {asyncio.create_task(task) for task in video_tasks}
+        
+        while pending:
+            # Check queue for transcription logs (non-blocking)
+            try:
+                log_message = transcription_log_queue.get_nowait()
+                yield log_message  # Yield transcription log directly
+            except asyncio.QueueEmpty:
+                pass
+            
+            # Wait for any task to complete (with timeout to check queue frequently)
+            done, pending = await asyncio.wait(pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED)
+            results.extend([task.result() if not task.exception() else task.exception() for task in done])
+        
+        # Drain any remaining logs in queue
+        while not transcription_log_queue.empty():
+            try:
+                log_message = transcription_log_queue.get_nowait()
+                yield log_message
+            except asyncio.QueueEmpty:
+                break
         
         # Count successes
         successful = sum(1 for r in results if not isinstance(r, Exception))
@@ -267,6 +294,17 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
 async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, video_num: int, total_videos: int):
     """Streaming version of process_video - returns success/failure without yielding"""
     
+    global transcription_log_queue
+    
+    def log_callback(message: str):
+        """Callback to put transcription logs in queue"""
+        if transcription_log_queue:
+            # Put message in queue (will be consumed by analyze_topic_streaming)
+            try:
+                transcription_log_queue.put_nowait({"message": message})
+            except:
+                pass  # Queue might be full, skip
+    
     try:
         video_id = video_data["video_id"]
         video_title = video_data['title'][:50] + "..." if len(video_data['title']) > 50 else video_data['title']
@@ -284,9 +322,9 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
         video_data_for_db = {k: v for k, v in video_data.items() if k != 'is_valid'}
         db_video = crud.create_video(db, video_data_for_db, topic_id)
         
-        # Transcribe video
+        # Transcribe video with callback
         try:
-            transcript_result = transcription_service.transcribe_video(video_id)
+            transcript_result = transcription_service.transcribe_video(video_id, log_callback=log_callback)
             status = transcript_result.get("status", "unknown")
             
             if status == "success" and transcript_result.get("text"):
@@ -813,16 +851,24 @@ async def process_video(db: Session, topic_id: int, video_data: Dict):
         db_video = crud.create_video(db, video_data_for_db, topic_id)
         print(f"✓ Video record created with ID: {db_video.id}")
         
-        # Step 4: Transcribe video
+        # Step 4: Transcribe video (HYBRID: YouTube Captions → Vosk Fallback)
         print(f"\n📝 Transcribing video {video_id}...")
         try:
             transcript_result = transcription_service.transcribe_video(video_id)
             
             # Check transcription status
             status = transcript_result.get("status", "unknown")
+            source = transcript_result.get("source", "unknown")
             
             if status == "success" and transcript_result.get("text"):
-                print(f"✓ Transcript received:")
+                # Show which method was used
+                if source == "youtube_captions":
+                    print(f"✓ Transcript received via YouTube Captions ⚡ (FAST)")
+                elif source == "vosk":
+                    print(f"✓ Transcript received via Vosk 🐌 (SLOW)")
+                else:
+                    print(f"✓ Transcript received via {source}")
+                
                 print(f"   - Text length: {len(transcript_result.get('text', ''))} characters")
                 print(f"   - Language: {transcript_result.get('language', 'unknown')}")
                 print(f"   - Word count: {transcript_result.get('word_count', 0)}")
