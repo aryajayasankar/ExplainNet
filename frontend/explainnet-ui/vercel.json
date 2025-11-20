@@ -5,6 +5,7 @@
   "installCommand": "npm install",
   "framework": "angular",
   "env": {
+    "NODE_ENV": "production",
     "NODE_VERSION": "20"
   }
 }
