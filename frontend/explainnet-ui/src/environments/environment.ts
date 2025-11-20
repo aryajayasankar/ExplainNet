@@ -1,4 +1,4 @@
 export const environment = {
   production: false,
-  apiBaseUrl: 'http://localhost:8000/api'
+  apiBaseUrl: 'https://explainnet-backend.onrender.com/api'  // Using production URL for now
 };
