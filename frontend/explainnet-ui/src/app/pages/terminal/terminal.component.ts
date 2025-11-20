@@ -146,7 +146,7 @@ export class TerminalComponent implements OnInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const topic = encodeURIComponent(this.topicInput);
-    const url = `http://localhost:8000/api/topics/create-streaming?topic=${topic}`;
+    const url = `${this.apiService['baseUrl']}/topics/create-streaming?topic=${topic}`;
 
     this.eventSource = new EventSource(url);
 
