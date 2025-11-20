@@ -80,47 +80,88 @@ ExplainNet addresses the challenge of information overload in the digital age by
 
 ```mermaid
 graph TB
-    subgraph "Frontend - Angular 18"
-        A[Landing Page] --> B[Terminal Interface]
-        B --> C[Analysis Dashboard]
-        C --> D[Emotion Charts]
-        C --> E[GNN Visualization]
-        C --> F[AI Synthesis]
+    subgraph Client["🖥️ CLIENT LAYER"]
+        direction TB
+        A["🏠 Landing Page<br/><small>Hero & Features</small>"]
+        B["💻 Terminal Interface<br/><small>Topic Creation</small>"]
+        C["📊 Analysis Dashboard<br/><small>Main View</small>"]
+        D["😊 Emotion Charts<br/><small>Sentiment Viz</small>"]
+        E["🕸️ GNN Visualization<br/><small>Knowledge Graph</small>"]
+        F["🤖 AI Synthesis<br/><small>Summary View</small>"]
+        
+        A --> B
+        B --> C
+        C --> D
+        C --> E
+        C --> F
     end
 
-    subgraph "Backend - FastAPI"
-        G[REST API] --> H[Pipeline Orchestrator]
-        H --> I[YouTube Service]
-        H --> J[News Service]
-        H --> K[Gemini AI Service]
-        H --> L[Sentiment Analyzer]
+    subgraph Server["⚡ SERVER LAYER - FastAPI"]
+        direction TB
+        G["🔌 REST API Gateway<br/><small>CORS + Routing</small>"]
+        H["🎯 Pipeline Orchestrator<br/><small>Async Task Manager</small>"]
+        
+        subgraph Services["🔧 Microservices"]
+            direction LR
+            I["📹 YouTube Service<br/><small>Video Discovery</small>"]
+            J["📰 News Service<br/><small>Article Aggregation</small>"]
+            K["🧠 Gemini AI Service<br/><small>LLM Analysis</small>"]
+            L["💭 Sentiment Analyzer<br/><small>VADER + Emotions</small>"]
+        end
+        
+        G --> H
+        H --> I
+        H --> J
+        H --> K
+        H --> L
     end
 
-    subgraph "Data Sources"
-        M[YouTube Data API]
-        N[NewsAPI]
-        O[Guardian API]
-        P[Vosk STT]
+    subgraph External["🌐 EXTERNAL APIs"]
+        direction TB
+        M["▶️ YouTube Data API v3<br/><small>Videos & Metadata</small>"]
+        N["📡 NewsAPI.org<br/><small>Global News</small>"]
+        O["📰 Guardian API<br/><small>UK News</small>"]
+        P["🎤 Vosk STT<br/><small>Speech Recognition</small>"]
     end
 
-    subgraph "Storage"
-        Q[(PostgreSQL/SQLite)]
-        R[Supabase Storage]
+    subgraph Database["💾 DATA LAYER"]
+        direction TB
+        Q[("🗄️ PostgreSQL<br/><small>Primary Database</small>")]
+        R["☁️ Supabase Storage<br/><small>Transcript Cache</small>"]
+        
+        Q -.->|"Topics<br/>Videos<br/>Sentiments<br/>Comments<br/>Articles"| R
     end
 
-    B -->|POST /topics/create-streaming| G
-    I --> M
-    J --> N
-    J --> O
-    I --> P
-    L -->|VADER + Gemini| K
-    H --> Q
-    I -->|Transcripts| R
-    G -->|JSON Response| C
+    %% Client to Server Connections
+    B -->|"🔄 SSE Stream<br/>POST /topics/create-streaming"| G
+    C -->|"📥 GET Requests<br/>Analysis Data"| G
+    D -->|"📈 GET /videos-analysis"| G
+    F -->|"🤖 GET /ai-synthesis"| G
 
-    style A fill:#2563eb,stroke:#1e40af,color:#fff
-    style G fill:#10b981,stroke:#059669,color:#fff
-    style Q fill:#f59e0b,stroke:#d97706,color:#fff
+    %% Server to External APIs
+    I -->|"🔍 Search Videos"| M
+    I -->|"🎙️ Extract Audio"| P
+    J -->|"📡 Fetch Articles"| N
+    J -->|"📰 Fetch Articles"| O
+    L -->|"🧠 Emotion Analysis"| K
+
+    %% Server to Database
+    H -->|"💾 Store Data"| Q
+    I -->|"📝 Cache Transcripts"| R
+    G -->|"📖 Read Data"| Q
+
+    %% Styling
+    classDef clientStyle fill:#3b82f6,stroke:#2563eb,stroke-width:3px,color:#fff,font-weight:bold
+    classDef serverStyle fill:#10b981,stroke:#059669,stroke-width:3px,color:#fff,font-weight:bold
+    classDef externalStyle fill:#8b5cf6,stroke:#7c3aed,stroke-width:3px,color:#fff,font-weight:bold
+    classDef dbStyle fill:#f59e0b,stroke:#d97706,stroke-width:3px,color:#fff,font-weight:bold
+    classDef serviceStyle fill:#14b8a6,stroke:#0d9488,stroke-width:2px,color:#fff
+
+    class A,B,C,D,E,F clientStyle
+    class G,H serverStyle
+    class I,J,K,L serviceStyle
+    class M,N,O,P externalStyle
+    class Q,R dbStyle
 ```
 
 ### Data Flow
