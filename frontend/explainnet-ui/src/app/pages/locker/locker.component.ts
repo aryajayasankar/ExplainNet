@@ -23,6 +23,8 @@ export class LockerComponent implements OnInit, OnDestroy {
   newTopicName = '';
   creating = false;
   private pollingSubscription?: Subscription;
+  private analyzedVideoCounts: Map<number, number> = new Map();
+  private analyzedArticleCounts: Map<number, number> = new Map();
 
   constructor(
     private apiService: ApiService,
@@ -70,6 +72,15 @@ export class LockerComponent implements OnInit, OnDestroy {
       next: (topics) => {
         this.topics = topics;
         this.loading = false;
+        
+        // Load analyzed video counts for completed topics
+        topics.forEach(topic => {
+          if (topic.analysis_status === 'completed') {
+            this.loadAnalyzedVideoCount(topic.id);
+            this.loadAnalyzedArticleCount(topic.id);
+          }
+        });
+        
         this.cdr.markForCheck();
       },
       error: (err) => {
@@ -80,9 +91,40 @@ export class LockerComponent implements OnInit, OnDestroy {
     });
   }
 
+  loadAnalyzedVideoCount(topicId: number) {
+    this.apiService.getVideosByTopic(topicId).subscribe({
+      next: (videos) => {
+        this.analyzedVideoCounts.set(topicId, videos.length);
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.error(`Error loading video count for topic ${topicId}:`, err);
+      }
+    });
+  }
+
+  loadAnalyzedArticleCount(topicId: number) {
+    this.apiService.getArticlesByTopic(topicId).subscribe({
+      next: (articles) => {
+        this.analyzedArticleCounts.set(topicId, articles.length);
+        this.cdr.markForCheck();
+      },
+      error: (err) => {
+        console.error(`Error loading article count for topic ${topicId}:`, err);
+      }
+    });
+  }
+
   openCreateModal() {
-    // Navigate to terminal/chat interface instead of modal
-    this.router.navigate(['/create-analysis']);
+    // Clear any old terminal state before navigating to ensure fresh start
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('terminalState');
+    }
+    
+    // Navigate to terminal/chat interface for new analysis
+    this.router.navigate(['/create-analysis'], {
+      queryParams: { t: Date.now() } // Add timestamp to force route refresh
+    });
   }
 
   closeCreateModal() {
@@ -121,6 +163,16 @@ export class LockerComponent implements OnInit, OnDestroy {
     if (topic.analysis_status === 'completed') {
       this.router.navigate(['/analysis', topic.id]);
     }
+  }
+
+  getAnalyzedVideosCount(topicId: number): number | string {
+    const count = this.analyzedVideoCounts.get(topicId);
+    return count !== undefined ? count : '—';
+  }
+
+  getAnalyzedArticlesCount(topicId: number): number | string {
+    const count = this.analyzedArticleCounts.get(topicId);
+    return count !== undefined ? count : '—';
   }
 
   deleteTopic(id: number, event: Event) {

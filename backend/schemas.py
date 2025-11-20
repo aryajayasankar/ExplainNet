@@ -32,6 +32,8 @@ class TopicResponse(BaseModel):
     analysis_status: AnalysisStatus
     total_videos: int
     total_articles: int
+    videos_found: int = 0
+    articles_found: int = 0
     overall_sentiment: Optional[SentimentType]
     overall_impact_score: Optional[float]
     error_message: Optional[str]
@@ -63,9 +65,13 @@ class VideoResponse(BaseModel):
     influence_score: Optional[float]
     recency_boost: Optional[float]
     overall_sentiment: Optional[SentimentType]
+    emotions_json: Optional[str] = None
+    emotions: Optional[str] = None  # Alias for emotions_json for frontend compatibility
 
     class Config:
         from_attributes = True
+        populate_by_name = True
+        arbitrary_types_allowed = True
 
 
 # Sentiment Schemas

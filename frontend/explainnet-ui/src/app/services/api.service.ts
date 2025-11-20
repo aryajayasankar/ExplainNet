@@ -67,6 +67,10 @@ export class ApiService {
     return this.http.get<Video[]>(`${this.baseUrl}/topics/${topicId}/videos`);
   }
 
+  getVideosGNN(topicId: number): Observable<{ nodes: any[], edges: any[], layout: any }> {
+    return this.http.get<{ nodes: any[], edges: any[], layout: any }>(`${this.baseUrl}/topics/${topicId}/videos/gnn`);
+  }
+
   getVideo(id: number): Observable<Video> {
     return this.http.get<Video>(`${this.baseUrl}/videos/${id}`);
   }
@@ -109,5 +113,9 @@ export class ApiService {
     return forceRefresh 
       ? this.http.get<any>(url, { params: { force_refresh: 'true' } })
       : this.http.get<any>(url);
+  }
+
+  getAIAnalytics(topicId: number): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/topics/${topicId}/ai-analytics`);
   }
 }

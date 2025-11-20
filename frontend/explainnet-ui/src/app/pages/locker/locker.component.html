@@ -74,17 +74,31 @@
 
       <div class="card-stats" *ngIf="topic.analysis_status === 'completed'">
         <div class="stat">
+          <span class="stat-icon">🔍</span>
+          <div class="stat-content">
+            <div class="stat-value">{{ topic.videos_found || 0 }}</div>
+            <div class="stat-label">Videos Found</div>
+          </div>
+        </div>
+        <div class="stat">
           <span class="stat-icon">📹</span>
           <div class="stat-content">
-            <div class="stat-value">{{ topic.total_videos || 0 }}</div>
-            <div class="stat-label">Videos</div>
+            <div class="stat-value">{{ getAnalyzedVideosCount(topic.id) }}</div>
+            <div class="stat-label">Videos Analyzed</div>
+          </div>
+        </div>
+        <div class="stat">
+          <span class="stat-icon">🔍</span>
+          <div class="stat-content">
+            <div class="stat-value">{{ topic.articles_found || 0 }}</div>
+            <div class="stat-label">Articles Found</div>
           </div>
         </div>
         <div class="stat">
           <span class="stat-icon">📰</span>
           <div class="stat-content">
-            <div class="stat-value">{{ topic.total_articles || 0 }}</div>
-            <div class="stat-label">Articles</div>
+            <div class="stat-value">{{ getAnalyzedArticlesCount(topic.id) }}</div>
+            <div class="stat-label">Articles Analyzed</div>
           </div>
         </div>
         <div class="stat">

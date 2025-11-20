@@ -72,8 +72,28 @@ export class TerminalComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     if (isPlatformBrowser(this.platformId)) {
-      // Restore state from sessionStorage on page refresh
-      this.restoreStateFromStorage();
+      // Check if sessionStorage has any state
+      const savedState = sessionStorage.getItem('terminalState');
+      
+      if (savedState) {
+        // Restore state from sessionStorage (page refresh scenario)
+        this.restoreStateFromStorage();
+      } else {
+        // No saved state - ensure clean slate for new analysis
+        console.log('🆕 No saved state found - starting fresh');
+        this.currentState = 'chat';
+        this.topicInput = '';
+        this.logs = [];
+        this.createdTopicId = null;
+        this.isProcessing = false;
+        this.transcriptionState = {
+          isActive: false,
+          startTime: null,
+          elapsedTime: '0:00',
+          logs: []
+        };
+        this.cdr.detectChanges();
+      }
       
       setTimeout(() => {
         document.querySelector('.chat-container')?.classList.add('visible');
@@ -156,14 +176,22 @@ export class TerminalComponent implements OnInit, OnDestroy {
         } else if (data.message) {
           // Check for transcription special markers
           if (data.message.includes('[TRANSCRIPTION_START]')) {
+            console.log('🎯 [TRANSCRIPTION_START] detected! Calling startTranscriptionSubProcess()');
             this.startTranscriptionSubProcess();
+            // Don't add to main logs, only to transcription terminal
           } else if (data.message.includes('[TRANSCRIPTION_END]')) {
+            console.log('🎯 [TRANSCRIPTION_END] detected! Calling endTranscriptionSubProcess()');
             this.endTranscriptionSubProcess();
+            // Don't add to main logs, only to transcription terminal
           } else if (data.message.includes('[TRANSCRIPTION_LOG]')) {
             // Extract the actual message after the marker
             const cleanMessage = data.message.replace('[TRANSCRIPTION_LOG]', '').trim();
+            console.log('🎯 [TRANSCRIPTION_LOG] detected! Message:', cleanMessage);
             this.addTranscriptionLog(cleanMessage);
+            // Don't add to main logs, only to transcription terminal
           } else {
+            // Regular progress message - add to main terminal logs
+            console.log('📝 Adding regular log to main terminal:', data.message);
             this.addLog(data.message, data.type || 'info');
           }
         }
@@ -185,6 +213,9 @@ export class TerminalComponent implements OnInit, OnDestroy {
   }
 
   private addLog(text: string, type: LogMessage['type'] = 'info'): void {
+    console.log(`📋 addLog called - text: "${text}", type: ${type}`);
+    console.log(`📋 Current logs count before push: ${this.logs.length}`);
+    
     const log: LogMessage = {
       id: this.logIdCounter++,
       text,
@@ -194,15 +225,19 @@ export class TerminalComponent implements OnInit, OnDestroy {
     };
 
     this.logs.push(log);
-    this.cdr.markForCheck();
-
+    console.log(`📋 Logs count after push: ${this.logs.length}`);
+    console.log(`📋 Logs array:`, this.logs.map(l => l.text));
+    
+    this.cdr.detectChanges(); // Force immediate change detection
+    
     // Save state after each log update
     this.saveStateToStorage();
 
     // Animate in with slight delay
     setTimeout(() => {
       log.visible = true;
-      this.cdr.markForCheck();
+      console.log(`📋 Log ${log.id} set to visible: true`);
+      this.cdr.detectChanges(); // Force change detection again
       this.scrollToBottom();
     }, 100);
   }
@@ -234,10 +269,22 @@ export class TerminalComponent implements OnInit, OnDestroy {
       this.addLog(`📊 Your insights are ready to explore!`, 'success');
       
       setTimeout(() => {
+        // Hide yellow transcription terminal now that everything is done
+        this.transcriptionState.isActive = false;
+        this.transcriptionState.logs = [];
+        if (this.transcriptionTimerInterval) {
+          clearInterval(this.transcriptionTimerInterval);
+          this.transcriptionTimerInterval = null;
+        }
+        
         this.currentState = 'complete';
         this.isProcessing = false;
         this.saveStateToStorage(); // Save complete state
-        this.cdr.markForCheck();
+        
+        console.log('🎉 Setting currentState to complete');
+        console.log('🎉 currentState:', this.currentState);
+        
+        this.cdr.detectChanges(); // Force immediate change detection
       }, 500);
     }, 300);
   }
@@ -323,6 +370,12 @@ export class TerminalComponent implements OnInit, OnDestroy {
 
 
   resetToChat(): void {
+    // Clear sessionStorage
+    if (isPlatformBrowser(this.platformId)) {
+      sessionStorage.removeItem('terminalState');
+    }
+    
+    // Reset component state completely
     this.currentState = 'chat';
     this.topicInput = '';
     this.logs = [];
@@ -332,12 +385,26 @@ export class TerminalComponent implements OnInit, OnDestroy {
     this.stopTimer();
     this.resetTimer();
     
-    // Clear sessionStorage when resetting to chat
-    if (isPlatformBrowser(this.platformId)) {
-      sessionStorage.removeItem('terminalState');
+    // Reset transcription state
+    this.transcriptionState = {
+      isActive: false,
+      startTime: null,
+      elapsedTime: '0:00',
+      logs: []
+    };
+    
+    if (this.transcriptionTimerInterval) {
+      clearInterval(this.transcriptionTimerInterval);
+      this.transcriptionTimerInterval = null;
     }
     
+    // Force change detection
     this.cdr.markForCheck();
+    
+    // Navigate to create-analysis (will reuse component but state is now reset)
+    this.router.navigate(['/create-analysis'], { 
+      queryParams: { refresh: Date.now() } // Force Angular to recognize route change
+    });
   }
 
   viewAnalytics(): void {
@@ -364,12 +431,16 @@ export class TerminalComponent implements OnInit, OnDestroy {
   
   // Transcription subprocess management
   private startTranscriptionSubProcess(): void {
+    console.log('🔧 startTranscriptionSubProcess() EXECUTING');
+    console.log('🔧 currentState:', this.currentState);
     this.transcriptionState = {
       isActive: true,
       startTime: Date.now(),
       elapsedTime: '0:00',
       logs: []
     };
+    console.log('🔧 transcriptionState set to:', this.transcriptionState);
+    console.log('🔧 transcriptionState.isActive:', this.transcriptionState.isActive);
     
     // Start transcription timer
     this.transcriptionTimerInterval = setInterval(() => {
@@ -382,22 +453,28 @@ export class TerminalComponent implements OnInit, OnDestroy {
       }
     }, 1000);
     
+    console.log('🔧 Calling cdr.markForCheck()');
     this.cdr.markForCheck();
+    console.log('🔧 startTranscriptionSubProcess() COMPLETE');
   }
   
   private endTranscriptionSubProcess(): void {
-    // Stop transcription timer
-    if (this.transcriptionTimerInterval) {
-      clearInterval(this.transcriptionTimerInterval);
-      this.transcriptionTimerInterval = null;
-    }
+    // Don't hide the terminal immediately - keep it visible for all videos
+    // Just add a completion message to show this video is done
+    const completionLog: LogMessage = {
+      id: this.logIdCounter++,
+      text: '✅ Video transcription complete',
+      type: 'transcription',
+      timestamp: new Date(),
+      visible: true,
+      isTranscriptionLog: true
+    };
     
-    // Mark as inactive after brief delay to show completion
-    setTimeout(() => {
-      this.transcriptionState.isActive = false;
-      this.transcriptionState.logs = [];
-      this.cdr.markForCheck();
-    }, 500);
+    this.transcriptionState.logs.push(completionLog);
+    this.cdr.detectChanges();
+    this.scrollTranscriptionToBottom();
+    
+    // Terminal will stay visible until analysis completes
   }
   
   private addTranscriptionLog(text: string): void {
@@ -417,7 +494,19 @@ export class TerminalComponent implements OnInit, OnDestroy {
     setTimeout(() => {
       log.visible = true;
       this.cdr.markForCheck();
+      this.scrollTranscriptionToBottom();
     }, 50);
+  }
+  
+  private scrollTranscriptionToBottom(): void {
+    if (isPlatformBrowser(this.platformId)) {
+      setTimeout(() => {
+        const transcriptionLogs = document.querySelector('.transcription-logs');
+        if (transcriptionLogs) {
+          transcriptionLogs.scrollTop = transcriptionLogs.scrollHeight;
+        }
+      }, 100);
+    }
   }
   
   // Timer management methods

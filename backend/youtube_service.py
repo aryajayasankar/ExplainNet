@@ -127,7 +127,12 @@ async def search_videos(topic: str, max_results: int = 50, target_valid_videos: 
     
     videos = []
     for item in data.get("items", []):
-        video_id = item["id"]["videoId"]
+        # Skip non-video items (channels, playlists, etc.)
+        item_id = item.get("id", {})
+        if not isinstance(item_id, dict) or "videoId" not in item_id:
+            continue
+            
+        video_id = item_id["videoId"]
         snippet = item["snippet"]
         
         videos.append({
@@ -166,6 +171,10 @@ async def get_video_details(video_ids: List[str]) -> List[Dict]:
     
     videos_details = []
     for item in data.get("items", []):
+        # Skip items without proper ID
+        if "id" not in item:
+            continue
+            
         stats = item.get("statistics", {})
         content_details = item.get("contentDetails", {})
         snippet = item.get("snippet", {})

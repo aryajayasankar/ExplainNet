@@ -30,6 +30,7 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
     
     global transcription_log_queue
     transcription_log_queue = asyncio.Queue()
+    print(f"[QUEUE DEBUG] Created queue at: {id(transcription_log_queue)}")
     
     try:
         # Update status to processing
@@ -73,6 +74,9 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
             return
         
         yield {"status": "progress", "message": f"✅ Found {len(videos)} videos", "type": "success"}
+        
+        # Store original search count
+        original_video_count = len(videos)
         
         # Step 2: Get video details and filter
         yield {"status": "progress", "message": "📋 Fetching video details...", "type": "info"}
@@ -138,8 +142,10 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         
         while pending:
             # Check queue for transcription logs (non-blocking)
+            print(f"[PIPELINE DEBUG] Checking queue (id: {id(transcription_log_queue)}, size: {transcription_log_queue.qsize()})")
             try:
                 log_message = transcription_log_queue.get_nowait()
+                print(f"[PIPELINE DEBUG] Got transcription log from queue: {log_message}")
                 yield log_message  # Yield transcription log directly
             except asyncio.QueueEmpty:
                 pass
@@ -185,6 +191,9 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         for a in historical_articles:
             a["source_type"] = "historical"
         all_articles = recent_articles + historical_articles
+        
+        # Store original search count
+        original_article_count = len(all_articles)
         
         if len(all_articles) == 0:
             yield {"status": "progress", "message": "⚠️ No news articles found", "type": "warning"}
@@ -244,8 +253,10 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         unique_sources = len(set([a.get("source", "") for a in all_articles if a.get("source")]))
         
         topic = crud.get_topic(db, topic_id)
-        topic.total_videos = len(videos)
-        topic.total_articles = len(all_articles)
+        topic.videos_found = original_video_count  # Original search results
+        topic.articles_found = original_article_count  # Original search results
+        topic.total_videos = len(videos)  # Successfully analyzed videos
+        topic.total_articles = len(all_articles)  # Successfully analyzed articles
         topic.unique_sources_count = unique_sources
         
         # Calculate average impact score
@@ -298,11 +309,16 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
     
     def log_callback(message: str):
         """Callback to put transcription logs in queue"""
+        print(f"[CALLBACK DEBUG] log_callback called with: {message}")
+        print(f"[CALLBACK DEBUG] Queue object id: {id(transcription_log_queue)}")
         if transcription_log_queue:
             # Put message in queue (will be consumed by analyze_topic_streaming)
             try:
                 transcription_log_queue.put_nowait({"message": message})
-            except:
+                print(f"[CALLBACK DEBUG] Message added to queue successfully")
+                print(f"[CALLBACK DEBUG] Queue size now: {transcription_log_queue.qsize()}")
+            except Exception as e:
+                print(f"[CALLBACK DEBUG] Failed to add to queue: {e}")
                 pass  # Queue might be full, skip
     
     try:
@@ -322,9 +338,15 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
         video_data_for_db = {k: v for k, v in video_data.items() if k != 'is_valid'}
         db_video = crud.create_video(db, video_data_for_db, topic_id)
         
-        # Transcribe video with callback
+        # Transcribe video with callback (run in thread pool to not block event loop)
         try:
-            transcript_result = transcription_service.transcribe_video(video_id, log_callback=log_callback)
+            loop = asyncio.get_event_loop()
+            transcript_result = await loop.run_in_executor(
+                None, 
+                transcription_service.transcribe_video, 
+                video_id, 
+                log_callback
+            )
             status = transcript_result.get("status", "unknown")
             
             if status == "success" and transcript_result.get("text"):
