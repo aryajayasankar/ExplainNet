@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm install && npm run build",
+  "outputDirectory": "dist/explainnet-ui/browser",
+  "devCommand": "npm start",
+  "installCommand": "npm install",
+  "framework": "angular",
+  "env": {
+    "NODE_VERSION": "20"
+  }
+}

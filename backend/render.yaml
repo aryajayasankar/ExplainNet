@@ -1,0 +1,14 @@
+# Render Deployment Configuration
+# This file tells Render how to build and run your backend
+
+# Build Command
+buildCommand = "pip install -r requirements.txt"
+
+# Start Command
+startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+
+[env]
+# Environment variables (set these in Render dashboard)
+# DATABASE_URL will be auto-set by Render when you connect to Supabase
+# FRONTEND_URL should be set to your Vercel URL
+# GOOGLE_API_KEY, NEWS_API_KEY, GUARDIAN_API_KEY set in dashboard

@@ -26,12 +26,21 @@ app = FastAPI(
 
 # Configure CORS origins via environment variable for flexibility in dev/prod
 allow_origins_env = os.getenv("ALLOW_ORIGINS")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:4200")
+
 if allow_origins_env:
     # Expect comma-separated list
     allow_origins = [o.strip() for o in allow_origins_env.split(',') if o.strip()]
 else:
-    # Default: typical Angular dev server origins
-    allow_origins = ["http://localhost:4200", "http://127.0.0.1:4200"]
+    # Default: local + Vercel deployments
+    allow_origins = [
+        "http://localhost:4200", 
+        "http://127.0.0.1:4200",
+        FRONTEND_URL,
+        "https://*.vercel.app"
+    ]
+
+print(f"🌐 CORS enabled for: {allow_origins}")
 
 app.add_middleware(
     CORSMiddleware,
