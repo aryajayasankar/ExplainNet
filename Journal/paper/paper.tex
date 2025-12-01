@@ -1,0 +1,99 @@
+% Paper Template - Cross-Platform Sentiment Analysis
+% Use Overleaf or local LaTeX installation
+% Template: IEEEtran for conference style
+
+\documentclass[conference]{IEEEtran}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+\title{Cross-Platform Sentiment Analysis Using Context-Aware Meta-Learning: A Study of YouTube and News Media}
+
+\author{
+    \IEEEauthorblockN{[Your Name]}
+    \IEEEauthorblockA{
+        [Your Institution]\\
+        [Your Email]
+    }
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Sentiment analysis across heterogeneous platforms presents unique challenges due to differing linguistic styles and content formats. We present a context-aware meta-learning approach that adaptively weights multiple sentiment analyzers based on text characteristics and source metadata. Our method combines VADER, RoBERTa, and DistilBERT in a Random Forest meta-classifier. Evaluated on 125 manually annotated YouTube videos across 25 controversial topics, our approach achieves [X]\% accuracy, significantly outperforming baselines (p < 0.05). We introduce a sentiment divergence metric for credibility assessment and release our dataset publicly.
+\end{abstract}
+
+\section{Introduction}
+% TODO: Write introduction (1.5 pages)
+% - Motivation
+% - Problem statement  
+% - Research questions
+% - Contributions
+
+\section{Related Work}
+% TODO: Cite 30+ papers (2 pages)
+
+\subsection{Sentiment Analysis Methods}
+% VADER, BERT-based models, etc.
+
+\subsection{Ensemble Approaches}
+% Voting, stacking, meta-learning
+
+\subsection{YouTube and Video Analysis}
+% Prior work on video sentiment
+
+\subsection{Cross-Platform Mining}
+% Multi-source analysis
+
+\section{Methodology}
+
+\subsection{Dataset Construction}
+% Annotation process, guidelines, inter-annotator agreement
+
+\subsection{Base Sentiment Analyzers}
+% VADER, RoBERTa, DistilBERT descriptions
+
+\subsection{Context-Aware Meta-Learner}
+% Feature extraction, Random Forest, training
+
+\subsection{Cross-Platform Divergence Metric}
+% Mathematical definition of SDS
+
+\section{Experiments}
+
+\subsection{Experimental Setup}
+\subsection{Baseline Methods}
+\subsection{Evaluation Metrics}
+
+\section{Results}
+
+\subsection{Sentiment Classification Performance}
+% Table: Baseline comparison
+
+\subsection{Feature Importance Analysis}
+% Figure: Feature importance
+
+\subsection{Divergence-Credibility Correlation}
+% Statistical tests
+
+\subsection{Error Analysis}
+
+\section{Discussion}
+
+\subsection{Why Meta-Learning Works}
+\subsection{Limitations}
+
+\section{Conclusion}
+
+\section*{Data and Code Availability}
+Dataset and code: \url{https://github.com/aryajayasankar/ExplainNet}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
