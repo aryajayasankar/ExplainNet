@@ -2,17 +2,34 @@ import google.generativeai as genai
 import os
 import json
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, Callable
 
-# Primary Gemini API key (for YouTube: transcripts, comments, video sentiment)
+# Primary Gemini API key (for YouTube video transcripts and sentiment)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 # Secondary Gemini API key (for News articles: summaries only)
-# If not set, will fall back to primary key
 GEMINI_API_KEY_NEWS = os.getenv("GEMINI_API_KEY_NEWS", GEMINI_API_KEY)
+
+# Third Gemini API key (for Comments sentiment analysis)
+GEMINI_API_KEY_COMMENTS = os.getenv("GEMINI_API_KEY_COMMENTS", GEMINI_API_KEY)
 
 # Configure primary API key as default
 genai.configure(api_key=GEMINI_API_KEY)
+
+
+async def wait_with_countdown(seconds: int, callback: Optional[Callable] = None):
+    """Wait with optional progress callbacks every 5 seconds"""
+    if callback:
+        callback(f"⏳ Gemini quota limit - waiting {seconds}s for rate limit reset...")
+    
+    remaining = seconds
+    while remaining > 0:
+        wait_chunk = min(5, remaining)
+        await asyncio.sleep(wait_chunk)
+        remaining -= wait_chunk
+        if remaining > 0 and callback and remaining % 10 == 0:
+            callback(f"⏳ Still waiting... {remaining}s remaining")
+
 
 # Candidate models to try (use the first that responds to generation)
 _GEMINI_CANDIDATES = [
@@ -60,13 +77,15 @@ def _get_working_model(timeout_seconds: int = 8) -> str:
     return None
 
 
-async def analyze_sentiment_advanced(text: str, title: str = "") -> Dict:
+async def analyze_sentiment_advanced(text: str, title: str = "", retry_count: int = 0, max_retries: int = 2) -> Dict:
     """
     Analyze sentiment using Google Gemini AI with advanced insights
     
     Args:
         text: Transcript text to analyze
         title: Video title for context
+        retry_count: Current retry attempt (internal)
+        max_retries: Maximum retry attempts for quota errors
     
     Returns:
         Dict with sentiment, emotional tone, bias analysis, and more
@@ -219,8 +238,25 @@ Ensure numeric fields are numbers and lists are JSON arrays.
         return result
     
     except Exception as e:
-        # Log the error for debugging
-        print(f"❌ Gemini sentiment analysis error: {str(e)}")
+        error_str = str(e)
+        # Detect quota exceeded (429 error)
+        if "429" in error_str or "quota" in error_str.lower():
+            # Extract retry delay from error message if present
+            import re
+            retry_match = re.search(r'retry.*?(\d+)[\s\.]', error_str.lower())
+            retry_delay = int(retry_match.group(1)) if retry_match else 45
+            
+            # If we haven't exhausted retries, wait and retry
+            if retry_count < max_retries:
+                print(f"⏳ Gemini quota exceeded. Waiting {retry_delay}s before retry {retry_count+1}/{max_retries}...")
+                await wait_with_countdown(retry_delay, lambda msg: print(msg))
+                print(f"✓ Retry delay complete, attempting retry...")
+                return await analyze_sentiment_advanced(text, title, retry_count + 1, max_retries)
+            else:
+                print(f"❌ Gemini quota exhausted after {max_retries} retries. Falling back to VADER only.")
+        else:
+            print(f"❌ Gemini sentiment analysis error: {error_str[:200]}")
+        
         # Return structured failure info; sentiment set to None so callers don't treat it as a real 'NEUTRAL'
         return {
             "model_name": "gemini",
@@ -229,32 +265,36 @@ Ensure numeric fields are numbers and lists are JSON arrays.
             "positive_score": 0.0,
             "negative_score": 0.0,
             "neutral_score": 0.0,
-            "emotional_tone": "error",
+            "emotional_tone": "quota_exceeded" if "429" in error_str else "error",
             "emotions": json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0}),
             "objectivity_score": 0.0,
             "bias_level": "Unknown",
-            "bias_type": "error",
+            "bias_type": "quota_exceeded" if "429" in error_str else "error",
             "controversy_level": "Unknown",
             "evidence_quality": "Unknown",
             "key_themes": json.dumps([]),
-            "neutral_summary": f"Error analyzing content: {str(e)}",
-            "error": str(e),
-            "justification": f"Gemini failed to produce sentiment: {str(e)}"
+            "neutral_summary": f"Quota exceeded - using VADER only" if "429" in error_str else f"Error: {error_str[:100]}",
+            "error": error_str[:200],
+            "justification": f"Gemini quota exceeded" if "429" in error_str else f"Error: {error_str[:100]}"
         }
 
 
-async def analyze_comment_sentiment(comment_text: str) -> Dict:
-    """Analyze sentiment of a single comment"""
+async def analyze_comment_sentiment(comment_text: str, retry_count: int = 0, max_retries: int = 1) -> Dict:
+    """Analyze sentiment of a single comment using COMMENTS API key"""
     
-    if not GEMINI_API_KEY:
+    if not GEMINI_API_KEY_COMMENTS:
         return {
             "sentiment": None,
             "sentiment_score": 0.0,
             "confidence": 0.0,
             "toxicity_score": 0.0,
             "emotions": json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0}),
-            "justification": "No GEMINI_API_KEY configured"
+            "justification": "No GEMINI_API_KEY_COMMENTS configured"
         }
+    
+    # Temporarily switch to COMMENTS key
+    original_key = genai.api_key if hasattr(genai, 'api_key') else None
+    genai.configure(api_key=GEMINI_API_KEY_COMMENTS)
     
     prompt = f"""
 Analyze this YouTube comment and provide sentiment analysis in JSON format:
@@ -359,21 +399,43 @@ Provide JSON response:
         else:
             parsed["emotions"] = json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0})
 
+        # Restore original key
+        if original_key and original_key != GEMINI_API_KEY_COMMENTS:
+            genai.configure(api_key=original_key)
+
         return parsed
     
     except Exception as e:
+        error_str = str(e)
+        
+        # Restore original key on error
+        if original_key and original_key != GEMINI_API_KEY_COMMENTS:
+            genai.configure(api_key=original_key)
+        
+        # Handle quota with retry
+        if "429" in error_str or "quota" in error_str.lower():
+            import re
+            retry_match = re.search(r'retry.*?(\d+)[\s\.]', error_str.lower())
+            retry_delay = int(retry_match.group(1)) if retry_match else 3
+            
+            if retry_count < max_retries:
+                print(f"⏳ Comment sentiment quota hit. Waiting {retry_delay}s...")
+                await wait_with_countdown(retry_delay, lambda msg: print(msg))
+                print(f"✓ Retry complete")
+                return await analyze_comment_sentiment(comment_text, retry_count + 1, max_retries)
+        
         return {
             "sentiment": None,
             "sentiment_score": 0.0,
             "confidence": 0.0,
             "toxicity_score": 0.0,
             "emotions": json.dumps({"joy": 0, "sadness": 0, "anger": 0, "fear": 0, "surprise": 0, "disgust": 0}),
-            "error": str(e),
+            "error": error_str[:200],
             "justification": "Gemini comment sentiment failed"
         }
 
 
-async def summarize_article(title: str, description: str, content: str = "", use_news_key: bool = True) -> Dict:
+async def summarize_article(title: str, description: str, content: str = "", use_news_key: bool = True, retry_count: int = 0, max_retries: int = 1) -> Dict:
     """
     Generate a short gist/summary of a news article using Gemini (NO sentiment analysis)
     
@@ -461,14 +523,33 @@ Do not include sentiment analysis. Just summarize what the article is about.
         return gist_result
     
     except Exception as e:
+        error_str = str(e)
         # Restore original API key on error too
         if original_key and original_key != api_key:
             genai.configure(api_key=original_key)
         
-        print(f"❌ Gemini article summary error: {str(e)}")
+        # Handle quota errors with retry
+        if "429" in error_str or "quota" in error_str.lower():
+            import re
+            retry_match = re.search(r'retry.*?(\d+)[\s\.]', error_str.lower())
+            retry_delay = int(retry_match.group(1)) if retry_match else 35
+            
+            if retry_count < max_retries:
+                print(f"⏳ Article summarization quota hit. Waiting {retry_delay}s...")
+                await wait_with_countdown(retry_delay, lambda msg: print(msg))
+                print(f"✓ Retry complete, resuming article processing...")
+                return await summarize_article(title, description, content, use_news_key, retry_count + 1, max_retries)
+            else:
+                print(f"❌ Gemini article quota exhausted. Using fallback summary.")
+                return {
+                    "gist": f"{title[:100]}... (AI summary unavailable - quota exceeded)",
+                    "error": "quota_exceeded"
+                }
+        
+        print(f"❌ Gemini article summary error: {error_str[:200]}")
         return {
-            "gist": f"Error generating summary: {str(e)}",
-            "error": str(e)
+            "gist": f"Error generating summary: {error_str[:100]}",
+            "error": error_str[:200]
         }
 
 

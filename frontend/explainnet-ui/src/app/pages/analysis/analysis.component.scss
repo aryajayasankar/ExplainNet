@@ -846,74 +846,62 @@
     }
   }
   
-  // Emotion Heatmap Card Styles
-  .emotion-heatmap-card {
-    .emotion-bars-container {
-      display: flex;
-      flex-direction: column;
-      gap: 0.875rem;
+  // Compact Emotion Summary Card
+  .emotion-summary-card {
+    .emotion-compact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
     }
     
-    .emotion-bar-item {
-      animation: fadeIn 0.6s ease-out backwards;
+    .emotion-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0.75rem;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      transition: all 0.2s ease;
+      animation: fadeIn 0.5s ease-out backwards;
       
-      .emotion-bar-label {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.5rem;
-        
-        .emotion-name {
-          font-size: 0.875rem;
-          font-weight: 700;
-          color: #1e293b;
-          letter-spacing: -0.01em;
-        }
-        
-        .emotion-percentage {
-          font-size: 0.875rem;
-          font-weight: 800;
-          color: #64748b;
-        }
+      .emotion-icon-chip {
+        font-size: 1.5rem;
+        line-height: 1;
+        flex-shrink: 0;
       }
       
-      .emotion-bar-track {
-        width: 100%;
-        height: 12px;
-        background: #e2e8f0;
-        border-radius: 6px;
-        overflow: hidden;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+      .emotion-chip-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        min-width: 0;
+        flex: 1;
         
-        .emotion-bar-fill {
-          height: 100%;
-          border-radius: 6px;
-          transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-          animation: intensityFill 1.2s ease-out backwards;
-          box-shadow: 0 0 8px currentColor;
-          position: relative;
-          
-          &::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 50%;
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, transparent 100%);
-            border-radius: 6px 6px 0 0;
-          }
+        .emotion-chip-name {
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #64748b;
+          text-transform: uppercase;
+          letter-spacing: 0.02em;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        
+        .emotion-chip-value {
+          font-size: 1.125rem;
+          font-weight: 800;
+          color: #1e293b;
+          line-height: 1;
         }
       }
       
       &:hover {
-        .emotion-bar-track {
-          box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.08), 0 0 0 2px currentColor;
-        }
-        
-        .emotion-bar-fill {
-          filter: brightness(1.1);
-        }
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        border-color: #cbd5e1;
+        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
       }
     }
   }

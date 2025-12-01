@@ -252,23 +252,19 @@
           </div>
         </div>
 
-        <!-- Emotion Heatmap Card -->
-        <div class="viz-card emotion-heatmap-card">
+        <!-- Compact Emotion Summary Card -->
+        <div class="viz-card emotion-summary-card">
           <div class="card-header">
-            <span class="card-icon">🌡️</span>
-            <h3 class="card-title">Emotion Intensity Map</h3>
+            <span class="card-icon">🎭</span>
+            <h3 class="card-title">Top Emotions</h3>
           </div>
           
-          <div class="emotion-bars-container">
-            <div class="emotion-bar-item" *ngFor="let emotion of getEmotionHeatmapData()">
-              <div class="emotion-bar-label">
-                <span class="emotion-name">{{ emotion.emotion }}</span>
-                <span class="emotion-percentage">{{ emotion.intensity }}%</span>
-              </div>
-              <div class="emotion-bar-track">
-                <div class="emotion-bar-fill" 
-                     [style.width.%]="emotion.intensity"
-                     [style.background]="emotion.color"></div>
+          <div class="emotion-compact-grid">
+            <div class="emotion-chip" *ngFor="let emotion of getEmotionHeatmapData()">
+              <span class="emotion-icon-chip">{{ emotion.icon }}</span>
+              <div class="emotion-chip-info">
+                <span class="emotion-chip-name">{{ emotion.emotion }}</span>
+                <span class="emotion-chip-value">{{ emotion.intensity }}</span>
               </div>
             </div>
           </div>

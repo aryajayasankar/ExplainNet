@@ -245,15 +245,19 @@ export class AnalysisComponent implements OnInit {
     let videoCount = 0;
 
     this.videos.forEach(v => {
-      if (v.emotions_json) {
+      const emotionsStr = v.emotions_json || v.emotions;
+      if (emotionsStr) {
         try {
-          const emotions = JSON.parse(v.emotions_json);
-          Object.entries(emotions).forEach(([name, value]) => {
-            emotionTotals[name] = (emotionTotals[name] || 0) + (value as number);
-          });
-          videoCount++;
+          const emotions = typeof emotionsStr === 'string' ? JSON.parse(emotionsStr) : emotionsStr;
+          if (emotions && typeof emotions === 'object') {
+            Object.entries(emotions).forEach(([name, value]) => {
+              const numValue = parseInt(String(value || 0), 10) || 0;
+              emotionTotals[name] = (emotionTotals[name] || 0) + numValue;
+            });
+            videoCount++;
+          }
         } catch (error) {
-          // Skip invalid JSON
+          console.error('Error parsing dominant emotion:', error);
         }
       }
     });
@@ -261,60 +265,61 @@ export class AnalysisComponent implements OnInit {
     if (videoCount === 0) return null;
 
     const emotionAverages = Object.entries(emotionTotals)
-      .map(([name, total]) => ({ name, percentage: Math.round(total / videoCount) }))
+      .map(([name, total]) => ({ 
+        name, 
+        percentage: Math.min(100, Math.max(0, Math.round(total / videoCount)))
+      }))
       .sort((a, b) => b.percentage - a.percentage);
 
     return emotionAverages[0] || null;
   }
 
-  // Emotion Heatmap Data
+  // Emotion Heatmap Data - Compact version showing top emotions
   getEmotionHeatmapData(): Array<{ emotion: string; icon: string; intensity: number; color: string }> {
     const emotionTotals: { [key: string]: number } = {};
     let videoCount = 0;
 
     this.videos.forEach(v => {
-      // Try both emotions and emotions_json fields
-      const emotionsStr = v.emotions || v.emotions_json;
+      const emotionsStr = v.emotions_json || v.emotions;
       if (emotionsStr) {
         try {
-          const emotions = JSON.parse(emotionsStr);
-          Object.entries(emotions).forEach(([name, value]) => {
-            emotionTotals[name] = (emotionTotals[name] || 0) + (value as number);
-          });
-          videoCount++;
+          const emotions = typeof emotionsStr === 'string' ? JSON.parse(emotionsStr) : emotionsStr;
+          if (emotions && typeof emotions === 'object') {
+            Object.entries(emotions).forEach(([name, value]) => {
+              const numValue = parseInt(String(value || 0), 10) || 0;
+              emotionTotals[name] = (emotionTotals[name] || 0) + numValue;
+            });
+            videoCount++;
+          }
         } catch (error) {
-          console.error('Error parsing emotions:', error, 'Raw data:', emotionsStr);
+          console.error('Error parsing emotions:', error, 'Raw:', emotionsStr);
         }
       }
     });
 
     console.log('🎭 Emotion aggregation:', { videoCount, emotionTotals, totalVideos: this.videos.length });
 
-    if (videoCount === 0) {
-      return [
-        { emotion: 'Joy', icon: '😊', intensity: 0, color: '#fbbf24' },
-        { emotion: 'Trust', icon: '🤝', intensity: 0, color: '#60a5fa' },
-        { emotion: 'Fear', icon: '😨', intensity: 0, color: '#c084fc' },
-        { emotion: 'Surprise', icon: '😲', intensity: 0, color: '#fb923c' },
-        { emotion: 'Sadness', icon: '😢', intensity: 0, color: '#38bdf8' },
-        { emotion: 'Disgust', icon: '🤢', intensity: 0, color: '#4ade80' },
-        { emotion: 'Anger', icon: '😠', intensity: 0, color: '#f87171' },
-        { emotion: 'Anticipation', icon: '🤩', intensity: 0, color: '#a78bfa' }
-      ];
-    }
-
     const emotionConfig: { [key: string]: { icon: string; color: string } } = {
       'joy': { icon: '😊', color: '#fbbf24' },
-      'trust': { icon: '🤝', color: '#60a5fa' },
+      'sadness': { icon: '😢', color: '#38bdf8' },
+      'anger': { icon: '😠', color: '#f87171' },
       'fear': { icon: '😨', color: '#c084fc' },
       'surprise': { icon: '😲', color: '#fb923c' },
-      'sadness': { icon: '😢', color: '#38bdf8' },
       'disgust': { icon: '🤢', color: '#4ade80' },
-      'anger': { icon: '😠', color: '#f87171' },
-      'anticipation': { icon: '🤩', color: '#a78bfa' },
       'love': { icon: '💖', color: '#ec4899' },
+      'trust': { icon: '🤝', color: '#60a5fa' },
+      'anticipation': { icon: '🤩', color: '#a78bfa' },
       'neutral': { icon: '😐', color: '#94a3b8' }
     };
+
+    if (videoCount === 0) {
+      return Object.entries(emotionConfig).slice(0, 6).map(([name, config]) => ({
+        emotion: name.charAt(0).toUpperCase() + name.slice(1),
+        icon: config.icon,
+        intensity: 0,
+        color: config.color
+      }));
+    }
 
     return Object.entries(emotionTotals)
       .map(([name, total]) => {
@@ -464,17 +469,19 @@ export class AnalysisComponent implements OnInit {
     
     let videoCount = 0;
     this.videos.forEach(video => {
-      // Try both emotions and emotions_json fields
-      const emotionsStr = video.emotions || video.emotions_json;
+      const emotionsStr = video.emotions_json || video.emotions;
       if (emotionsStr) {
         try {
-          const emotions = JSON.parse(emotionsStr);
-          emotionKeys.forEach(key => {
-            aggregatedEmotions[key] += emotions[key] || 0;
-          });
-          videoCount++;
+          const emotions = typeof emotionsStr === 'string' ? JSON.parse(emotionsStr) : emotionsStr;
+          if (emotions && typeof emotions === 'object') {
+            emotionKeys.forEach(key => {
+              const val = parseInt(String(emotions[key] || 0), 10) || 0;
+              aggregatedEmotions[key] += val;
+            });
+            videoCount++;
+          }
         } catch (error) {
-          console.error('Error parsing emotions for radar:', error);
+          console.error('Error parsing emotions for radar:', error, emotionsStr);
         }
       }
     });

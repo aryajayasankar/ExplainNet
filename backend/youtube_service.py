@@ -278,8 +278,18 @@ async def get_video_comments(video_id: str, max_results: int = 20) -> List[Dict]
         
         return comments
     
-    except httpx.HTTPStatusError as e:
-        # Comments might be disabled
-        if e.response.status_code == 403:
+    except (aiohttp.ClientResponseError, aiohttp.ClientConnectorError, asyncio.TimeoutError) as e:
+        # Comments might be disabled (403) or network/timing issues occurred.
+        try:
+            status = getattr(e, 'status', None) or getattr(getattr(e, 'response', None), 'status', None)
+        except Exception:
+            status = None
+        if status == 403:
+            print(f"⚠️  YouTube comments disabled or forbidden for video {video_id}")
             return []
-        raise
+        print(f"❌ get_video_comments failed for {video_id}: {e}")
+        return []
+    except Exception as e:
+        # Catch-all to prevent a NameError or unexpected exception from bubbling up
+        print(f"❌ Unexpected error while fetching comments for {video_id}: {e}")
+        return []

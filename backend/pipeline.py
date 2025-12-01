@@ -127,14 +127,24 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
             first_title = videos[0].get('title', '')[:60] + "..." if len(videos[0].get('title', '')) > 60 else videos[0].get('title', '')
             yield {"status": "progress", "message": f"📹 Video 1/{len(videos)}: {first_title}", "type": "info"}
         
-        video_tasks = []
-        for idx, video_data in enumerate(videos, 1):
-            video_tasks.append(process_video_streaming(db, topic_id, video_data, idx, len(videos)))
+        # Process videos in parallel with separate database sessions
+        # Create async tasks for all videos
+        from database import SessionLocal
         
-        # Process videos and show progress
-        yield {"status": "progress", "message": "🎙️ Transcribing audio...", "type": "info"}
-        yield {"status": "progress", "message": "💭 Analyzing sentiment with AI...", "type": "info"}
-        yield {"status": "progress", "message": "💬 Processing comments...", "type": "info"}
+        async def process_video_with_session(video_data, idx, total):
+            """Wrapper to process video with its own database session"""
+            video_db = SessionLocal()
+            try:
+                result = await process_video_streaming(video_db, topic_id, video_data, idx, total)
+                return result
+            finally:
+                video_db.close()
+        
+        # Process all videos in parallel
+        video_tasks = [
+            process_video_with_session(video_data, idx, len(videos))
+            for idx, video_data in enumerate(videos, 1)
+        ]
         
         # Gather results while monitoring transcription log queue
         results = []
@@ -142,17 +152,21 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
         
         while pending:
             # Check queue for transcription logs (non-blocking)
-            print(f"[PIPELINE DEBUG] Checking queue (id: {id(transcription_log_queue)}, size: {transcription_log_queue.qsize()})")
             try:
                 log_message = transcription_log_queue.get_nowait()
-                print(f"[PIPELINE DEBUG] Got transcription log from queue: {log_message}")
-                yield log_message  # Yield transcription log directly
+                yield log_message
             except asyncio.QueueEmpty:
                 pass
             
             # Wait for any task to complete (with timeout to check queue frequently)
             done, pending = await asyncio.wait(pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED)
-            results.extend([task.result() if not task.exception() else task.exception() for task in done])
+            for task in done:
+                try:
+                    result = task.result()
+                    results.append(result)
+                except Exception as e:
+                    print(f"❌ Video task exception: {type(e).__name__}: {str(e)}")
+                    results.append({"success": False, "message": str(e)})
         
         # Drain any remaining logs in queue
         while not transcription_log_queue.empty():
@@ -163,8 +177,13 @@ async def analyze_topic_streaming(db: Session, topic_id: int, topic_name: str):
                 break
         
         # Count successes
-        successful = sum(1 for r in results if not isinstance(r, Exception))
-        yield {"status": "progress", "message": f"✅ Processed {successful}/{len(videos)} videos successfully", "type": "success"}
+        successful = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
+        failed = len(results) - successful
+        
+        if failed > 0:
+            yield {"status": "progress", "message": f"⚠️ Processed {successful}/{len(videos)} videos ({failed} failed)", "type": "warning"}
+        else:
+            yield {"status": "progress", "message": f"✅ Processed {successful}/{len(videos)} videos successfully", "type": "success"}
         
         # Step 5: Search news articles
         yield {"status": "progress", "message": "📰 Searching news articles...", "type": "info"}
@@ -321,48 +340,76 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
                 print(f"[CALLBACK DEBUG] Failed to add to queue: {e}")
                 pass  # Queue might be full, skip
     
+    video_id = video_data["video_id"]
+    video_title = video_data['title'][:50] + "..." if len(video_data['title']) > 50 else video_data['title']
+    
+    print(f"\n{'='*80}")
+    print(f"🎬 Processing video: {video_title}")
+    print(f"   Video ID: {video_id}")
+    print(f"{'='*80}")
+    
     try:
-        video_id = video_data["video_id"]
-        video_title = video_data['title'][:50] + "..." if len(video_data['title']) > 50 else video_data['title']
-        
         # Check cache
         existing_video = db.query(crud.models.Video).filter(
             crud.models.Video.video_id == video_id
         ).first()
         
         if existing_video and existing_video.impact_score is not None:
-            # Video already analyzed, reuse it
+            print(f"✓ Video already processed, reusing from cache")
             return {"success": True, "message": f"Video {video_num} reused from cache"}
         
         # Create video record
+        print(f"✓ Creating video record in database...")
         video_data_for_db = {k: v for k, v in video_data.items() if k != 'is_valid'}
         db_video = crud.create_video(db, video_data_for_db, topic_id)
+        print(f"✓ Video record created with ID: {db_video.id}")
         
         # Transcribe video with callback (run in thread pool to not block event loop)
+        print(f"\n📝 Transcribing video {video_id}...")
         try:
             loop = asyncio.get_event_loop()
-            transcript_result = await loop.run_in_executor(
-                None, 
-                transcription_service.transcribe_video, 
-                video_id, 
-                log_callback
+            # Add 10 minute timeout (600 seconds) for transcription
+            transcript_result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, 
+                    transcription_service.transcribe_video, 
+                    video_id, 
+                    log_callback
+                ),
+                timeout=600.0  # 10 minutes max
             )
             status = transcript_result.get("status", "unknown")
             
             if status == "success" and transcript_result.get("text"):
+                print(f"✓ Transcript received:")
+                print(f"   - Text length: {len(transcript_result.get('text', ''))} characters")
+                print(f"   - Language: {transcript_result.get('language', 'unknown')}")
+                print(f"   - Word count: {transcript_result.get('word_count', 0)}")
                 db_video.transcription_status = "success"
                 db.commit()
             elif status == "timeout":
+                print(f"⚠️  Transcription timeout for video {video_id}")
                 db_video.transcription_status = "timeout"
                 db_video.transcription_error = transcript_result.get("error", "Timeout")
                 db.commit()
                 transcript_result = {"text": None}
             else:
+                error_msg = transcript_result.get("error", "Unknown error")
+                print(f"❌ Transcription failed: {error_msg}")
                 db_video.transcription_status = "failed"
-                db_video.transcription_error = transcript_result.get("error", "Unknown error")
+                db_video.transcription_error = error_msg
                 db.commit()
                 transcript_result = {"text": None}
+        except asyncio.TimeoutError:
+            print(f"❌ TRANSCRIPTION TIMEOUT: Video {video_id} exceeded 10 minutes")
+            db_video.transcription_status = "timeout"
+            db_video.transcription_error = "Transcription timeout (>10 minutes)"
+            db.commit()
+            transcript_result = {"text": None}
         except Exception as trans_error:
+            print(f"❌ TRANSCRIPTION EXCEPTION: {type(trans_error).__name__}: {str(trans_error)}")
+            import traceback
+            traceback.print_exc()
             db_video.transcription_status = "failed"
             db_video.transcription_error = str(trans_error)
             db.commit()
@@ -372,32 +419,85 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
         gemini_sentiment = None
         
         if transcript_result.get("text"):
+            print(f"\n✓ Transcript available, creating database record...")
             # Save transcript
             try:
                 crud.create_transcript(db, transcript_result, db_video.id)
-            except Exception:
+                print(f"✓ Transcript saved to database")
+            except Exception as e:
+                print(f"❌ Failed to save transcript: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 db.rollback()
             
             transcript_text = transcript_result["text"]
             
             # VADER sentiment
+            print(f"\n💭 Analyzing sentiment with VADER...")
             try:
                 hf_sentiment = await huggingface_service.analyze_sentiment(transcript_text)
                 crud.create_sentiment(db, hf_sentiment, db_video.id)
-            except Exception:
-                pass
+                print(f"✓ VADER sentiment: {hf_sentiment.get('sentiment', 'unknown')} (score: {hf_sentiment.get('score', 0):.2f})")
+            except Exception as e:
+                print(f"❌ VADER sentiment failed: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
             
             # Gemini sentiment
+            print(f"💭 Analyzing sentiment with Gemini...")
             try:
                 gemini_sentiment = await gemini_service.analyze_sentiment_advanced(
                     transcript_text,
-                    video_data["title"]
+                    video_data["title"],
+                    retry_count=0,
+                    max_retries=1  # Allow 1 retry with delay
                 )
                 crud.create_sentiment(db, gemini_sentiment, db_video.id)
-            except Exception:
-                pass
+                sentiment_result = gemini_sentiment.get('sentiment', 'unknown')
+                if sentiment_result:
+                    print(f"✓ Gemini sentiment: {sentiment_result} (confidence: {gemini_sentiment.get('confidence', 0):.2f})")
+                else:
+                    print(f"⚠️  Gemini quota exceeded - using VADER sentiment only")
+                
+                # Extract and save emotions from Gemini response
+                if gemini_sentiment.get("emotions"):
+                    import json
+                    em = gemini_sentiment.get("emotions")
+                    # gemini_service may already return a JSON string for emotions or a dict
+                    if isinstance(em, str):
+                        try:
+                            em_dict = json.loads(em)
+                        except Exception:
+                            em_dict = {}
+                    elif isinstance(em, dict):
+                        em_dict = em
+                    else:
+                        em_dict = {}
+
+                    # Ensure integer values and sane defaults
+                    try:
+                        em_norm = {
+                            "joy": int(em_dict.get("joy", 0) or 0),
+                            "sadness": int(em_dict.get("sadness", 0) or 0),
+                            "anger": int(em_dict.get("anger", 0) or 0),
+                            "fear": int(em_dict.get("fear", 0) or 0),
+                            "surprise": int(em_dict.get("surprise", 0) or 0),
+                            "disgust": int(em_dict.get("disgust", 0) or 0),
+                        }
+                    except Exception:
+                        em_norm = {"joy":0,"sadness":0,"anger":0,"fear":0,"surprise":0,"disgust":0}
+
+                    db_video.emotions_json = json.dumps(em_norm)
+                    db.commit()
+                    print(f"✓ Emotions saved: {em_norm}")
+                
+            except Exception as e:
+                print(f"❌ Gemini sentiment failed: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
             
             # Extract entities
+            print(f"🏷️  Extracting entities...")
             try:
                 entities = await gemini_service.extract_entities(
                     transcript_text,
@@ -406,70 +506,88 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
                 import json
                 db_video.entities_json = json.dumps(entities)
                 db.commit()
-            except Exception:
-                pass
+                print(f"✓ Extracted {len(entities) if entities else 0} entities")
+            except Exception as e:
+                print(f"❌ Entity extraction failed: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print(f"\n⚠️  No transcript available, skipping sentiment analysis")
+        
+        # Get and analyze comments (OUTSIDE the transcript check - always try to get comments)
+        print(f"\n💬 Fetching comments...")
+        try:
+            comments = await youtube_service.get_video_comments(video_id, max_results=20)
             
-            # Get and analyze comments
-            try:
-                comments = await youtube_service.get_video_comments(video_id, max_results=20)
-                
-                if comments:
-                    # Process comments in batches
-                    async def analyze_comment(comment_data):
-                        comment_text = comment_data["text"]
-                        
-                        try:
-                            hf_result = await huggingface_service.analyze_sentiment(comment_text)
-                            if isinstance(hf_result, dict) and hf_result.get("sentiment"):
-                                comment_data["hf_sentiment"] = hf_result.get("sentiment")
-                                comment_data["hf_score"] = hf_result.get("confidence", hf_result.get("score", 0.0))
-                                comment_data["hf_justification"] = hf_result.get("justification")
-                            else:
-                                comment_data["hf_sentiment"] = None
-                                comment_data["hf_score"] = None
-                        except Exception:
+            if comments:
+                print(f"✓ Found {len(comments)} comments, analyzing sentiment...")
+                # Process comments in batches
+                async def analyze_comment(comment_data):
+                    comment_text = comment_data["text"]
+                    
+                    try:
+                        hf_result = await huggingface_service.analyze_sentiment(comment_text)
+                        if isinstance(hf_result, dict) and hf_result.get("sentiment"):
+                            comment_data["hf_sentiment"] = hf_result.get("sentiment")
+                            comment_data["hf_score"] = hf_result.get("confidence", hf_result.get("score", 0.0))
+                            comment_data["hf_justification"] = hf_result.get("justification")
+                        else:
                             comment_data["hf_sentiment"] = None
                             comment_data["hf_score"] = None
-                        
-                        try:
-                            gemini_result = await gemini_service.analyze_comment_sentiment(comment_text)
-                            if isinstance(gemini_result, dict) and gemini_result.get("sentiment"):
-                                comment_data["gemini_sentiment"] = gemini_result.get("sentiment")
-                                comment_data["gemini_support"] = gemini_result.get("support_stance")
-                                comment_data["gemini_score"] = gemini_result.get("confidence", 0.0)
-                                comment_data["gemini_justification"] = gemini_result.get("justification")
-                                comment_data["gemini_sarcasm_score"] = gemini_result.get("sarcasm_score")
-                            else:
-                                comment_data["gemini_sentiment"] = None
-                                comment_data["gemini_support"] = None
-                                comment_data["gemini_score"] = None
-                        except Exception:
+                    except Exception as e:
+                        print(f"  ⚠️  Comment sentiment (VADER) failed: {str(e)[:50]}")
+                        comment_data["hf_sentiment"] = None
+                        comment_data["hf_score"] = None
+                    
+                    try:
+                        gemini_result = await gemini_service.analyze_comment_sentiment(comment_text)
+                        if isinstance(gemini_result, dict) and gemini_result.get("sentiment"):
+                            comment_data["gemini_sentiment"] = gemini_result.get("sentiment")
+                            comment_data["gemini_support"] = gemini_result.get("support_stance")
+                            comment_data["gemini_score"] = gemini_result.get("confidence", 0.0)
+                            comment_data["gemini_justification"] = gemini_result.get("justification")
+                            comment_data["gemini_sarcasm_score"] = gemini_result.get("sarcasm_score")
+                        else:
                             comment_data["gemini_sentiment"] = None
                             comment_data["gemini_support"] = None
                             comment_data["gemini_score"] = None
-                        
-                        return comment_data
+                    except Exception as e:
+                        print(f"  ⚠️  Comment sentiment (Gemini) failed: {str(e)[:50]}")
+                        comment_data["gemini_sentiment"] = None
+                        comment_data["gemini_support"] = None
+                        comment_data["gemini_score"] = None
                     
-                    # Process in batches
-                    batch_size = 10
-                    for i in range(0, len(comments), batch_size):
-                        batch = comments[i:i+batch_size]
-                        tasks = [analyze_comment(comment) for comment in batch]
-                        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-                        
-                        for result in batch_results:
-                            if isinstance(result, dict) and not isinstance(result, Exception):
-                                try:
-                                    crud.create_comment(db, result, db_video.id)
-                                except Exception:
-                                    db.rollback()
-                        
-                        if i + batch_size < len(comments):
-                            await asyncio.sleep(1)
-            except Exception:
-                pass
+                    return comment_data
+                
+                # Process in batches
+                batch_size = 10
+                comments_saved = 0
+                for i in range(0, len(comments), batch_size):
+                    batch = comments[i:i+batch_size]
+                    tasks = [analyze_comment(comment) for comment in batch]
+                    batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    for result in batch_results:
+                        if isinstance(result, dict) and not isinstance(result, Exception):
+                            try:
+                                crud.create_comment(db, result, db_video.id)
+                                comments_saved += 1
+                            except Exception as e:
+                                print(f"  ⚠️  Failed to save comment: {str(e)[:50]}")
+                                db.rollback()
+                    
+                    if i + batch_size < len(comments):
+                        await asyncio.sleep(1)
+                print(f"✓ Saved {comments_saved}/{len(comments)} comments")
+            else:
+                print(f"ℹ️  No comments found for this video")
+        except Exception as e:
+            print(f"❌ Comment processing failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         # Calculate impact scores
+        print(f"\n📊 Calculating impact scores...")
         try:
             sentiment_data = {
                 "huggingface": hf_sentiment if hf_sentiment else None,
@@ -489,13 +607,29 @@ async def process_video_streaming(db: Session, topic_id: int, video_data: Dict, 
                 scores["models_agree"] = False
 
             crud.update_video_scores(db, db_video.id, scores)
-        except Exception:
+            print(f"✓ Impact score: {scores.get('impact_score', 0):.1f}/10")
+            print(f"✓ Overall sentiment: {scores.get('overall_sentiment', 'unknown')}")
+        except Exception as e:
+            print(f"❌ Impact score calculation failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             db.rollback()
             raise
         
+        print(f"\n{'='*80}")
+        print(f"✅ VIDEO PROCESSING COMPLETE: {video_title}")
+        print(f"{'='*80}\n")
         return {"success": True, "message": f"Video {video_num} processed successfully"}
     
     except Exception as e:
+        print(f"\n{'='*80}")
+        print(f"❌ ERROR processing video {video_id}")
+        print(f"   Error: {str(e)}")
+        print(f"   Error type: {type(e).__name__}")
+        print(f"   Traceback:")
+        import traceback
+        traceback.print_exc()
+        print(f"{'='*80}\n")
         db.rollback()
         return {"success": False, "message": f"Video {video_num} failed: {str(e)[:50]}"}
 

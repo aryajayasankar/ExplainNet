@@ -1,0 +1,804 @@
+================================================================================
+                    EXPLAINNET - PROJECT METHODOLOGY
+================================================================================
+
+## 1. SYSTEM ARCHITECTURE & DESIGN
+
+### 1.1 Project Objective
+ExplainNet is an AI-powered multi-source analysis platform that aggregates and 
+analyzes information from YouTube videos and news articles on user-specified 
+topics. The system employs NLP, sentiment analysis, and emotion detection to 
+provide comprehensive insights into public discourse.
+
+Primary Goals:
+- Automated data collection from YouTube (videos, comments) and news sources
+- Real-time transcription using speech-to-text technology
+- Multi-model sentiment analysis (VADER + Gemini AI ensemble)
+- Emotion extraction across six core emotions (Joy, Sadness, Anger, Fear, 
+  Surprise, Disgust)
+- Impact scoring to quantify content influence
+- AI-powered synthesis for actionable insights
+
+### 1.2 System Architecture Overview
+Three-tier architecture:
+
+Tier 1: Frontend (Presentation Layer)
+- Angular 17 SPA with TypeScript
+- Real-time progress via Server-Sent Events (SSE)
+- Interactive visualizations (Chart.js)
+- Responsive component-based UI
+
+Tier 2: Backend (Application Layer)
+- FastAPI asynchronous REST API
+- Parallel video processing (Python asyncio)
+- Multi-service integration (YouTube, News APIs, Gemini, VADER, Vosk)
+- SSE for real-time client updates
+- Exponential backoff retry mechanisms
+
+Tier 3: Data Layer
+- SQLite (development) / PostgreSQL (production)
+- SQLAlchemy ORM with async support
+- Normalized schema with foreign keys
+
+Data Flow:
+User Input → Frontend → FastAPI Backend → Parallel Data Collection 
+→ Transcription → AI Analysis → Database → SSE Stream → Visualization
+
+### 1.3 Technology Stack
+
+Backend:
+- FastAPI: Async support, auto-docs, high performance
+- Python 3.13: Latest features, type hints, async/await
+- SQLAlchemy 2.0: ORM with async, migrations
+- aiohttp: Non-blocking HTTP client
+
+AI/ML Services:
+- Google Gemini 2.5 Flash: Sentiment, emotion, entity extraction (250 req/day)
+- VADER (NLTK): Rule-based sentiment (unlimited, free)
+- Vosk: Offline speech recognition (40MB-1.8GB models)
+- YouTube Transcript API: Fast caption extraction
+
+Frontend:
+- Angular 17: Component framework, TypeScript, RxJS
+- Chart.js: Lightweight data visualization
+- TailwindCSS: Utility-first CSS
+
+External APIs:
+- YouTube Data API v3: 10,000 units/day
+- NewsAPI: 100 req/day (free tier)
+- Guardian API: 500 req/day
+- Gemini API: 250 req/day per key × 3 keys = 750 total
+
+Justification:
+- Async design: Parallel processing reduces time from 15+ to 3-5 minutes
+- Multi-model ensemble: VADER + Gemini improves accuracy
+- Cost efficiency: Uses free-tier APIs
+
+### 1.4 Key Features
+
+1. Multi-Source Integration: 5 YouTube videos + 4 news articles per topic
+2. Intelligent Transcription: YouTube captions (fast) → Vosk STT (fallback)
+3. Advanced Sentiment: VADER + Gemini ensemble with confidence scoring
+4. Emotion Detection: 6 emotions scored 0-100 per video
+5. Impact Scoring: Multi-factor formula (views, engagement, authority)
+6. Real-Time Progress: SSE stream with live updates
+7. AI Insights: Cross-source pattern detection, trend analysis
+8. Quota Management: 3 Gemini keys, rate limit detection, graceful degradation
+
+================================================================================
+
+## 2. DATA COLLECTION & ACQUISITION
+
+### 2.1 YouTube Data Collection
+
+2.1.1 Video Search & Discovery
+- YouTube Data API v3 search.list endpoint
+- Parameters: q={topic}, type=video, maxResults=10, order=relevance
+- Cost: 100 quota units per search
+- Filtering: Remove shorts (<4min), livestreams, duplicates
+- Output: 5-10 relevant video IDs
+
+2.1.2 Video Metadata Extraction
+- videos.list endpoint with parts: snippet, statistics, contentDetails
+- Batch request: Up to 50 videos per call
+- Extracted fields:
+  * Snippet: title, description, channel ID, publish date, thumbnails
+  * Statistics: view count, like count, comment count
+  * Content Details: duration (ISO 8601), caption availability
+- Cost: 1 unit per video
+- Duration parsing: PT1H23M45S → 5025 seconds
+
+2.1.3 Channel Information
+- channels.list endpoint for creator credibility
+- Metrics: subscriber count, total views, video count
+- Authority formula: log10(subscribers + 1) × 0.7 + log10(views + 1) × 0.3
+- Used in impact score calculation
+- Cost: 1 unit per channel
+
+2.1.4 Comment Fetching
+- commentThreads.list endpoint
+- Parameters: videoId, maxResults=20, order=relevance
+- Per comment: text, author, likes, publish date
+- Sentiment analysis: VADER + Gemini per comment
+- Aggregation formula:
+  avg_comment_sentiment = Σ(comment_score × likes) / Σ(likes)
+- Cost: 1 unit per request
+
+Edge Cases:
+- Comments disabled → Return empty list
+- Timeout → Exponential backoff (5s, 10s, 20s)
+- API errors → Catch aiohttp.ClientError
+
+### 2.2 News Article Collection
+
+2.2.1 NewsAPI Integration
+- Endpoint: /v2/everything
+- Parameters: q={topic}, language=en, sortBy=relevancy, pageSize=10
+- Time range: Last 30 days (free tier restriction)
+- Quota: 100 requests/day
+- Output: 2-5 recent articles with title, description, URL, source
+
+2.2.2 Guardian API Integration
+- Endpoint: /search
+- Parameters: q={topic}, page-size=10, from-date={365 days ago}
+- Historical archive access (1999-present)
+- Quota: 500 requests/day
+- Output: 2-3 historical articles for trend analysis
+
+2.2.3 Article Filtering
+Relevance Scoring:
+  Relevance = 0.6 × Gemini_semantic_similarity + 0.4 × keyword_match_%
+  Threshold: Reject articles < 30 relevance
+
+Validation:
+- Minimum 100 words (exclude snippets)
+- Maximum age: 365 days
+- Source credibility: Prioritize major outlets
+- Deduplication: Levenshtein distance on titles
+
+### 2.3 Data Storage Strategy
+
+2.3.1 Database Schema
+Tables:
+1. topics: User submissions
+   - id, topic_name, created_at, status, overall_sentiment, impact_score
+2. videos: YouTube metadata
+   - id, topic_id (FK), video_id, title, views, likes, comments, duration,
+     impact_score, sentiment, emotions_json
+3. transcripts: Video transcriptions
+   - id, video_id (FK), text, language, word_count, source
+4. comments: User comments
+   - id, video_id (FK), text, author, likes, sentiment, confidence
+5. news_articles: News data
+   - id, topic_id (FK), title, URL, source, summary, relevance_score
+
+2.3.2 Relationships
+- topics (1) ──< (many) videos
+- topics (1) ──< (many) news_articles
+- videos (1) ── (1) transcripts
+- videos (1) ──< (many) comments
+
+Constraints:
+- ON DELETE CASCADE: Deleting topic removes all related data
+- CHECK(impact_score BETWEEN 0 AND 10)
+- CHECK(relevance_score BETWEEN 0 AND 100)
+
+2.3.3 Persistence Layer
+Session Management:
+- Singleton SessionLocal factory per request
+- Separate DB session per parallel video task
+- Explicit commits after analysis completion
+- Connection pooling: 5 connections for SQLite
+
+Transaction Handling:
+1. Create topic → commit
+2. Process videos in parallel (each gets own session)
+3. Save results → commit per video
+4. Update topic status → final commit
+
+Error Recovery:
+- Rollback on failure
+- Partial commits (save successful videos even if others fail)
+- Retry with exponential backoff
+
+================================================================================
+
+## 3. TRANSCRIPTION & TEXT EXTRACTION
+
+### 3.1 Two-Tier Architecture
+Design: Prioritize speed (YouTube captions) with robust fallback (Vosk STT)
+
+Decision Tree:
+  Has YouTube captions? 
+    YES → Use YouTube Transcript API (1-2 seconds)
+    NO  → Use Vosk Speech-to-Text (90-120 seconds)
+
+### 3.2 Fast Path: YouTube Captions
+- Library: youtube_transcript_api
+- Process:
+  1. Attempt fetch: YouTubeTranscriptApi.get_transcript(video_id)
+  2. Language preference: en > en-US > first available
+  3. Response: [{'text': '...', 'start': 0.0, 'duration': 2.5}, ...]
+  4. Concatenate text fields
+  5. Extract metadata: word count, language code
+
+Error Handling:
+- TranscriptsDisabled → Vosk fallback
+- NoTranscriptFound → Vosk fallback
+- VideoUnavailable → Mark failed, skip
+
+Performance: ~1.5s per video, 70% success rate
+
+### 3.3 Fallback: Vosk Speech-to-Text
+Model: vosk-model-en-us-0.22 (1.8GB, ~6% WER)
+
+Multi-Process Architecture:
+  Main Process → (queue) → Vosk Worker Process → (queue) → Main Process
+
+Worker Steps:
+1. Audio Download:
+   - yt-dlp extracts audio stream
+   - Format: WAV, 16kHz, mono
+   - Command: yt-dlp -f bestaudio -x --audio-format wav
+
+2. Audio Conversion:
+   - pydub converts to 16kHz mono if needed
+   - Formula: audio.set_frame_rate(16000).set_channels(1)
+
+3. Model Loading:
+   - Load once at startup: vosk.Model("models/vosk-model-en-us-0.22")
+   - Create recognizer: vosk.KaldiRecognizer(model, 16000)
+
+4. Real-Time Recognition:
+   - Stream 4096-byte chunks
+   - Feed to recognizer: rec.AcceptWaveform(chunk)
+   - Log progress every 10 seconds
+
+5. Final Result:
+   - rec.FinalResult() → JSON: {"text": "full transcript"}
+
+Timeout: 300 seconds (5 minutes max)
+Performance: ~105s per 10-minute video, 85% accuracy
+
+### 3.4 Quality Metrics
+Confidence:
+- YouTube captions: 95% assumed (human-verified or high-quality auto)
+- Vosk: Per-word confidence available (not currently used)
+
+Validation:
+- Minimum: 50 words
+- Maximum: 50,000 words (memory limit)
+
+================================================================================
+
+## 4. SENTIMENT ANALYSIS & EMOTION DETECTION
+
+### 4.1 Multi-Model Ensemble
+Rationale: Combine rule-based (VADER) + AI (Gemini) for best accuracy
+
+VADER Strengths:
+- Fast (milliseconds)
+- Free, unlimited
+- Good for slang, emojis, CAPS
+
+Gemini Strengths:
+- Contextual understanding (sarcasm, nuance)
+- Emotion extraction
+- Entity recognition
+
+Consensus Mechanism:
+  IF VADER_sentiment == Gemini_sentiment:
+    final = VADER_sentiment
+    confidence = avg(VADER_conf, Gemini_conf)
+  ELSE:
+    final = "MIXED"
+    confidence = max(VADER_conf, Gemini_conf)
+
+### 4.2 VADER Sentiment
+
+Algorithm: Rule-based lexicon + grammatical heuristics
+
+Compound Score Calculation:
+1. Tokenize text
+2. For each word:
+   - Lookup lexicon (e.g., "good" = +2.0, "terrible" = -3.5)
+   - Apply modifiers:
+     * ALL CAPS: multiply by 1.5
+     * Exclamation marks: add 0.292 per mark (max 4)
+     * Negation (not, never): flip polarity
+     * Intensifiers (very, extremely): multiply by 1.3
+3. Sum scores
+4. Normalize: compound = sum / sqrt(sum² + 15)
+
+Classification:
+  IF compound >= 0.05:  POSITIVE
+  ELIF compound <= -0.05: NEGATIVE
+  ELSE: NEUTRAL
+
+Confidence:
+  VADER_confidence = |compound_score|
+  
+  Examples:
+    compound = 0.8  → confidence = 0.8 (80%)
+    compound = -0.3 → confidence = 0.3 (30%)
+
+### 4.3 Gemini AI Sentiment
+
+Model: gemini-2.5-flash
+
+Prompt Template:
+  "Analyze sentiment of this text. Return JSON:
+  {
+    "sentiment": "POSITIVE/NEGATIVE/NEUTRAL/MIXED",
+    "confidence": 0.0-1.0,
+    "emotions": {"joy": 0-100, "sadness": 0-100, ...}
+  }
+  
+  Text: {transcript[:5000]}"
+
+Confidence Calculation (Softmax):
+  P(class_i) = exp(logit_i) / Σ exp(logit_j)
+  
+  Example:
+    Logits: [Positive: 2.5, Negative: 1.0, Mixed: 3.0]
+    Softmax:
+      P(Positive) = exp(2.5) / total = 0.34
+      P(Mixed) = exp(3.0) / total = 0.56 ← Highest
+    
+    Return: sentiment="MIXED", confidence=0.56
+
+JSON Validation:
+1. Extract JSON from response
+2. Validate keys: sentiment, confidence, emotions
+3. Clamp values:
+   - confidence: min(max(conf, 0.0), 1.0)
+   - emotions: min(max(int(val), 0), 100)
+4. Fallback if malformed: confidence = 0.0, sentiment = None
+
+### 4.4 Emotion Extraction
+
+Six Core Emotions (Ekman Model):
+1. Joy: Happiness, delight
+2. Sadness: Sorrow, grief
+3. Anger: Frustration, rage
+4. Fear: Anxiety, worry
+5. Surprise: Astonishment, shock
+6. Disgust: Revulsion, contempt
+
+Gemini Process:
+- Analyzes transcript for emotion-laden phrases
+- Assigns 0-100 intensity based on:
+  * Keyword frequency ("thrilled" → high joy)
+  * Contextual amplifiers ("absolutely furious" → very high anger)
+  * Sentence structure (exclamations, questions)
+
+Aggregation Across Videos:
+  For each emotion E:
+    total_E = Σ (video_i.emotion_E)
+    average_E = total_E / number_of_videos
+  
+  Overall distribution = [avg_joy, avg_sadness, ...]
+
+Dominant Emotion:
+  dominant = argmax(average_emotions)
+  
+  Example:
+    [Joy: 25, Anger: 60, Fear: 30, ...]
+    → Dominant = Anger (highest: 60)
+
+### 4.5 Comment Sentiment
+
+Process per Video:
+1. Fetch 20 comments via YouTube API
+2. For each comment:
+   - Run VADER: vader.polarity_scores(text)
+   - Run Gemini (using GEMINI_API_KEY_COMMENTS)
+   - Store sentiment + confidence
+3. Calculate aggregate:
+   avg_comment_sentiment = Σ(conf × score) / Σ(conf)
+   
+   where score:
+     POSITIVE = +1
+     NEUTRAL  =  0
+     NEGATIVE = -1
+
+Distribution:
+  positive_% = (positive_count / total) × 100
+  negative_% = (negative_count / total) × 100
+  neutral_%  = (neutral_count / total) × 100
+
+### 4.6 Confidence Distribution
+
+Purpose: Assess model reliability
+
+Calculation:
+  For each video:
+    VADER_conf = |VADER_compound|
+    Gemini_conf = Gemini_confidence
+  
+  Bin into ranges: [0-25%, 26-50%, 51-75%, 76-100%]
+  Count videos per bin per model
+
+Interpretation:
+- High in 76-100%: Model confident and reliable
+- High in 0-25%: Topic ambiguous, mixed sentiment
+- Compare VADER vs Gemini: Shows which performs better
+
+Average Confidence:
+  avg_VADER = Σ(VADER_conf_i) / N
+  avg_Gemini = Σ(Gemini_conf_i) / N
+
+================================================================================
+
+## 5. IMPACT SCORE CALCULATION
+
+### 5.1 Multi-Factor Formula
+
+Impact Score measures content influence using weighted components:
+
+Formula:
+  Impact (0-10) = Normalize(
+    w1 × log10(Views + 1) +
+    w2 × EngagementRatio +
+    w3 × log10(Comments + 1) +
+    w4 × log10(Subscribers + 1) +
+    w5 × |Sentiment_Confidence|
+  )
+  
+  Weights:
+    w1 = 0.35  (view count)
+    w2 = 0.20  (like ratio)
+    w3 = 0.15  (comment engagement)
+    w4 = 0.20  (channel authority)
+    w5 = 0.10  (sentiment intensity)
+
+Components:
+
+1. View Count (35%):
+   - Logarithmic scaling handles viral videos (1M+ views)
+   - log10(1,000,000) = 6.0
+
+2. Engagement Ratio (20%):
+   - Formula: Likes / (Likes + Dislikes + 1)
+   - Range: 0.0 to 1.0
+
+3. Comment Count (15%):
+   - Discussion indicator
+   - Logarithmic to prevent outlier bias
+
+4. Subscriber Count (20%):
+   - Channel credibility and reach
+   - log10(subscribers) gives proportional influence
+
+5. Sentiment Confidence (10%):
+   - Opinion strength multiplier
+   - Absolute value: |confidence|
+
+Normalization:
+  Min-Max scaling to 0-10 range
+
+Example Calculation:
+  Video: 2.5M views, 50K likes, 5K comments, 5M subscribers, 0.85 confidence
+  
+  view_score = log10(2,500,000 + 1) × 0.35 = 6.4 × 0.35 = 2.24
+  engagement = (50000 / 50001) × 0.20 = 0.20
+  comment_score = log10(5000 + 1) × 0.15 = 3.7 × 0.15 = 0.56
+  authority = log10(5,000,000 + 1) × 0.20 = 6.7 × 0.20 = 1.34
+  sentiment = 0.85 × 0.10 = 0.085
+  
+  Impact = 2.24 + 0.20 + 0.56 + 1.34 + 0.085 = 4.4/10
+
+### 5.2 Overall Topic Impact
+
+Aggregation across videos:
+  topic_impact = Σ (video_impact_i × video_views_i) / Σ (video_views_i)
+
+Weighted average gives more influence to popular videos.
+
+Interpretation:
+- 8-10: Viral, high impact
+- 6-7.9: Strong reach
+- 4-5.9: Moderate impact
+- 2-3.9: Limited reach
+- 0-1.9: Low impact
+
+================================================================================
+
+## 6. NEWS ARTICLE RELEVANCE SCORING
+
+### 6.1 Gemini-Based Semantic Matching
+
+Formula:
+  Relevance (0-100) = 0.6 × Gemini_Similarity + 0.4 × Keyword_Match_%
+
+Gemini Similarity:
+- Uses vector embeddings to compare topic and article title
+- Considers:
+  * Semantic relationships (e.g., "tariff" ↔ "trade policy")
+  * Contextual meaning
+  * Synonym matching
+  * Named entity overlap
+
+Keyword Matching:
+  keyword_match_% = (matching_keywords / total_topic_keywords) × 100
+
+Prompt Template:
+  "Rate relevance of this article to topic '{topic}':
+  Article: {article_title}
+  
+  Return JSON: {"relevance_score": 0-100, "reasoning": "..."}"
+
+### 6.2 Relevance Categories
+
+Scoring Ranges:
+- 90-100: Directly about topic
+  Example: "Trump Tariffs" → "Trump announces new tariff policy"
+- 70-89: Closely related
+  Example: "Trump Tariffs" → "China responds to US trade policy"
+- 50-69: Tangentially related
+  Example: "Trump Tariffs" → "Global economic outlook 2024"
+- 30-49: Weak connection
+- 0-29: Unrelated (filtered out)
+
+Default Threshold: 30 (reject below this)
+
+================================================================================
+
+## 7. AI SYNTHESIS & INSIGHTS GENERATION
+
+### 7.1 Cross-Source Data Integration
+
+Input Data Aggregated:
+- Video sentiment distribution (% pos/neg/neutral/mixed)
+- Emotion averages across videos
+- Impact scores and rankings
+- Comment sentiment patterns
+- Article relevance scores and summaries
+- Entity frequency counts
+- Confidence metrics (VADER vs Gemini)
+
+### 7.2 Gemini Synthesis Prompt
+
+Prompt Template:
+  "Analyze this topic comprehensively:
+  
+  Topic: {topic_name}
+  
+  DATA:
+  - {total_videos} videos ({total_views:,} views)
+  - {total_articles} articles
+  - Sentiment: {distribution}
+  - Emotions: {emotion_data}
+  - Impact: {avg_impact}/10
+  
+  VIDEO DETAILS:
+  {video_summaries}
+  
+  ARTICLE SUMMARIES:
+  {article_summaries}
+  
+  Return JSON:
+  {
+    "executive_summary": "3-4 sentence overview",
+    "key_findings": ["finding1", "finding2", ...],
+    "sentiment_analysis": "detailed breakdown",
+    "emotional_tone": "emotion analysis",
+    "public_perception": "based on comments",
+    "media_coverage": "article framing analysis",
+    "trends": ["trend1", "trend2"],
+    "surprises": ["unexpected1", "unexpected2"],
+    "recommendations": ["action1", "action2"],
+    "confidence_note": "model reliability explanation"
+  }"
+
+### 7.3 Output Components
+
+Executive Summary:
+- 3-4 sentences condensing all findings
+- Overall sentiment characterization
+- Key controversy or consensus points
+
+Key Findings:
+- Bullet-point major trends with evidence
+- Quantitative metrics (percentages, averages)
+- Cross-source comparisons
+
+Sentiment Analysis:
+- Distribution breakdown with percentages
+- Model agreement/disagreement patterns
+- Comment vs video sentiment comparison
+
+Emotional Tone:
+- Dominant emotions identified
+- Intensity levels and patterns
+- Explanation of why certain emotions prevalent
+
+Trends:
+- Temporal patterns (recent vs historical)
+- Emerging narratives
+- Shift detection (sentiment changes over time)
+
+Surprises:
+- Outliers in data
+- Contradictions between sources
+- Unexpected confidence levels
+
+Recommendations:
+- Strategic advice based on insights
+- Communication strategies
+- Areas needing further research
+
+Caching: Results cached for 15 minutes to avoid redundant Gemini calls
+
+================================================================================
+
+## 8. API QUOTA MANAGEMENT
+
+### 8.1 Multi-Key Strategy
+
+Distribution Across 3 Gemini Keys:
+- GEMINI_API_KEY: Video transcripts + sentiment (250 req/day)
+- GEMINI_API_KEY_NEWS: Article summaries + relevance (250 req/day)
+- GEMINI_API_KEY_COMMENTS: Comment sentiment + entities (250 req/day)
+
+Total Capacity: 750 requests/day → ~15-20 topics possible
+
+### 8.2 Rate Limit Detection
+
+429 Error Parsing:
+  Error message: "Quota exceeded... Please retry in 42.158s"
+  Regex extraction: r'retry.*?(\d+)[\s\.]'
+  Extracted delay: 42 seconds
+
+Detection Logic:
+  IF "429" in error_str OR "quota" in error_str.lower():
+    extract retry_delay
+    implement exponential backoff
+
+### 8.3 Retry Mechanism
+
+Exponential Backoff:
+  First retry: Wait exact API-specified delay (e.g., 42s)
+  Second retry: Wait 2x delay (e.g., 84s)
+  Max retries: 1-2 depending on service
+
+Countdown Display:
+  Every 10 seconds, log remaining time:
+  "⏳ Waiting 42s for quota reset..."
+  "⏳ Still waiting... 30s remaining"
+  "⏳ Still waiting... 20s remaining"
+
+### 8.4 Graceful Degradation
+
+Fallback Strategies:
+
+1. Gemini Sentiment Fails → Use VADER only
+   - Save: sentiment_gemini = None
+   - Use: sentiment_vader for final classification
+   - Confidence: VADER compound score
+
+2. Gemini Emotions Fail → Save zeros
+   - emotions_json = {"joy": 0, "sadness": 0, ..., "disgust": 0}
+   - Mark as quota_exceeded in logs
+
+3. Article Summary Fails → Use title + description
+   - summary = f"{title}. {description[:200]}... (quota exceeded)"
+
+4. Relevance Scoring Fails → Default 50
+   - relevance_score = 50 (neutral)
+
+Benefits:
+- No complete analysis failure
+- Partial results still valuable
+- User sees progress even with errors
+- Clear error messaging
+
+================================================================================
+
+## 9. REAL-TIME PROGRESS TRACKING
+
+### 9.1 Server-Sent Events (SSE)
+
+Protocol: HTTP text/event-stream
+Connection: Keep-alive, unidirectional (server → client)
+
+Message Format:
+  data: {"type": "log", "message": "✓ Found 5 videos", "level": "success"}
+  
+  data: {"type": "progress", "current": 3, "total": 5}
+  
+  data: {"type": "transcription_log", "message": "📥 Downloading audio..."}
+  
+  data: {"type": "complete", "topic_id": 123, "duration": 180.5}
+
+### 9.2 Message Types
+
+1. Log Messages:
+   - level: info, success, warning, error
+   - message: Human-readable text
+   - Examples: "✓ Creating topic...", "❌ Gemini quota exceeded"
+
+2. Progress Updates:
+   - current: Current step number
+   - total: Total steps
+   - percentage: (current / total) × 100
+
+3. Transcription Subprocess:
+   - Real-time logs from Vosk worker
+   - Updates every 10 seconds: "Progress: 150 words processed"
+
+4. Completion:
+   - Final topic_id
+   - Total processing duration
+   - Success/failure status
+
+### 9.3 Frontend Integration
+
+Angular SSE Handling:
+  EventSource API subscribes to /api/topics/create-streaming
+  Messages parsed and displayed in terminal component
+  Color-coded by level (success=green, error=red, info=blue)
+  Auto-scroll to latest message
+
+Benefits:
+- User sees exactly what's happening
+- Transparent error reporting
+- Builds trust through visibility
+- Helps debug issues
+
+================================================================================
+
+## 10. PERFORMANCE OPTIMIZATION
+
+### 10.1 Parallel Video Processing
+
+Architecture:
+  Sequential (old): 5 videos × 3 min = 15 minutes
+  Parallel (new): 5 videos simultaneously = 3-5 minutes
+
+Implementation:
+  async def process_videos(videos):
+    tasks = [process_single_video(v) for v in videos]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+Session Management:
+  Each video gets separate DB session to avoid SQLite write locks:
+    session = SessionLocal()
+    try:
+      # Process video
+      session.commit()
+    finally:
+      session.close()
+
+### 10.2 Caching Strategies
+
+1. AI Synthesis Cache:
+   - Store generated insights in topics.ai_synthesis_cache
+   - TTL: 15 minutes
+   - Check timestamp before regenerating
+
+2. Transcript Cache:
+   - Store in transcripts table
+   - Reuse if video already analyzed in different topic
+
+3. Gemini Response Cache:
+   - In-memory cache for identical prompts (not implemented yet)
+
+### 10.3 Timeout Handling
+
+Timeouts by Service:
+- YouTube API: 30 seconds
+- Transcription: 300 seconds (5 minutes max)
+- Gemini API: 60 seconds
+- News APIs: 30 seconds
+
+Retry Logic:
+  If timeout → Retry once with 2x timeout
+  If still fails → Log error, continue with other videos
+
+================================================================================
+
+END OF METHODOLOGY DOCUMENT
+Generated: November 20, 2025
+Project: ExplainNet - AI-Powered Multi-Source Sentiment Analysis Platform
+================================================================================

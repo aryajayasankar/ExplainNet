@@ -66,6 +66,7 @@ def transcribe_with_youtube_captions(video_id: str) -> dict:
     Accuracy: Very high (YouTube's AI)
     Success Rate: ~95% of videos
     """
+    # Import at module level to avoid scoping issues
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api._errors import (
@@ -73,7 +74,14 @@ def transcribe_with_youtube_captions(video_id: str) -> dict:
             NoTranscriptFound, 
             VideoUnavailable
         )
-        
+    except ImportError:
+        return {
+            "status": "failed",
+            "text": None,
+            "error": "youtube-transcript-api not installed. Run: pip install youtube-transcript-api"
+        }
+    
+    try:
         # Create API instance
         api = YouTubeTranscriptApi()
         
@@ -126,13 +134,6 @@ def transcribe_with_youtube_captions(video_id: str) -> dict:
             "status": "failed",
             "text": None,
             "error": "No captions available in any language"
-        }
-    
-    except ImportError:
-        return {
-            "status": "failed",
-            "text": None,
-            "error": "youtube-transcript-api not installed. Run: pip install youtube-transcript-api"
         }
     
     except Exception as e:
